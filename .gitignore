@@ -1,0 +1,18 @@
+# Dependencies
+node_modules/
+
+# Sandcastle — config is committed, secrets are not
+.sandcastle/.env
+
+# Env / secrets
+.env
+.env.*
+!.env.example
+
+# Build output
+dist/
+build/
+
+# Logs / OS
+*.log
+.DS_Store
