@@ -1,0 +1,15 @@
+{
+  "name": "principledb-prototype",
+  "private": true,
+  "type": "module",
+  "description": "THROWAWAY core-spine prototype for principleDB (see prototype/). Safe to delete once the question is answered.",
+  "scripts": {
+    "prototype": "tsx prototype/spine.ts",
+    "ingest": "tsx prototype/ingest-spike.ts",
+    "sandcastle": "npx tsx .sandcastle/main.ts"
+  },
+  "devDependencies": {
+    "@ai-hero/sandcastle": "^0.10.0",
+    "tsx": "^4.19.2"
+  }
+}
