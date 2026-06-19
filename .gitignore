@@ -16,3 +16,7 @@ build/
 # Logs / OS
 *.log
 .DS_Store
+
+# Throwaway prototype caches (see prototype/)
+prototype/.cache.json
+prototype/.cache-ingest.json
