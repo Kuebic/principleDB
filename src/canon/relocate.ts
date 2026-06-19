@@ -10,13 +10,11 @@
 // `source.slice(span.start, span.end)` yields the source's own words regardless of tier.
 
 import { alnumize, normalize } from './normalize';
-import type { MatchTier, Span } from './types';
+import type { Span } from './types';
 
-export interface RelocateResult {
-  located: boolean;
-  matchTier: MatchTier;
-  span: Span | null;
-}
+export type RelocateResult =
+  | { located: true; matchTier: 'exact' | 'normalized' | 'alnum'; span: Span }
+  | { located: false; matchTier: 'no-match'; span: null };
 
 export function relocate(source: string, quote: string): RelocateResult {
   if (quote.length === 0) {

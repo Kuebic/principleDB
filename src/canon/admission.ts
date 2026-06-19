@@ -29,39 +29,39 @@ export function admit(
   const principles: Principle[] = [];
   const reviewCandidates: ReviewCandidate[] = [];
 
-  items.forEach((item, idx) => {
+  for (const [idx, item] of items.entries()) {
     const result = relocate(source.text, item.quote);
-    if (result.located && result.span && result.matchTier !== 'no-match') {
-      const principleId = `${source.id}#p${idx}`;
-      const quote: LocatedQuote = {
-        id: `${source.id}#q${idx}`,
-        principleId,
+    if (!result.located) {
+      reviewCandidates.push({
+        id: `${source.id}#r${idx}`,
         sourceId: source.id,
-        span: result.span,
-        located: true,
-        matchTier: result.matchTier,
-        distilPromptVersion: provenance.distilPromptVersion,
-      };
-      principles.push({
-        id: principleId,
         claim: item.claim,
-        embedding: [],
-        quotes: [quote],
-        distilModel: provenance.distilModel,
-        distilModelVersion: provenance.distilModelVersion,
-        distilPromptVersion: provenance.distilPromptVersion,
+        quoteText: item.quote,
+        matchTier: 'no-match',
+        dedupState: 'pending',
       });
-      return;
+      continue;
     }
-    reviewCandidates.push({
-      id: `${source.id}#r${idx}`,
+    const principleId = `${source.id}#p${idx}`;
+    const quote: LocatedQuote = {
+      id: `${source.id}#q${idx}`,
+      principleId,
       sourceId: source.id,
+      span: result.span,
+      located: true,
+      matchTier: result.matchTier,
+      distilPromptVersion: provenance.distilPromptVersion,
+    };
+    principles.push({
+      id: principleId,
       claim: item.claim,
-      quoteText: item.quote,
-      matchTier: 'no-match',
-      dedupState: 'pending',
+      embedding: [],
+      quotes: [quote],
+      distilModel: provenance.distilModel,
+      distilModelVersion: provenance.distilModelVersion,
+      distilPromptVersion: provenance.distilPromptVersion,
     });
-  });
+  }
 
   return { principles, reviewCandidates };
 }

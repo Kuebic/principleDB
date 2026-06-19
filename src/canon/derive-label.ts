@@ -6,40 +6,35 @@
 
 import type { Span, StructureMap } from './types';
 
+// Entries in a structureMap are assumed to be sorted by offset ascending — so the
+// last entry with offset ≤ target is the one that covers the target.
+function lastAtOrBefore<T extends { offset: number }>(
+  entries: ReadonlyArray<T>,
+  offset: number,
+): T | undefined {
+  let result: T | undefined;
+  for (const e of entries) {
+    if (e.offset > offset) break;
+    result = e;
+  }
+  return result;
+}
+
 export function deriveLabel(structureMap: StructureMap, span: Span, textLength: number): string {
   if (structureMap.kind === 'pdf-pages') {
-    const pageOf = (offset: number): number | null => {
-      let page: number | null = null;
-      for (const p of structureMap.pages) {
-        if (p.offset <= offset) page = p.page;
-        else break;
-      }
-      return page;
-    };
-    const startPage = pageOf(span.start);
-    const lastOffset = Math.max(span.start, span.end - 1);
-    const endPage = pageOf(lastOffset);
-    if (startPage === null || endPage === null) return '';
-    if (startPage === endPage) return `page ${startPage}`;
-    return `pages ${startPage}–${endPage}`;
+    const start = lastAtOrBefore(structureMap.pages, span.start);
+    const end = lastAtOrBefore(structureMap.pages, Math.max(span.start, span.end - 1));
+    if (!start || !end) return '';
+    if (start.page === end.page) return `page ${start.page}`;
+    return `pages ${start.page}–${end.page}`;
   }
 
   if (structureMap.kind === 'transcript-timecodes') {
-    let timecode: string | null = null;
-    for (const t of structureMap.codes) {
-      if (t.offset <= span.start) timecode = t.timecode;
-      else break;
-    }
-    return timecode ?? '';
+    return lastAtOrBefore(structureMap.codes, span.start)?.timecode ?? '';
   }
 
   if (structureMap.kind === 'text-headings') {
-    let heading: string | null = null;
-    for (const h of structureMap.headings) {
-      if (h.offset <= span.start) heading = h.heading;
-      else break;
-    }
-    return heading ?? '';
+    return lastAtOrBefore(structureMap.headings, span.start)?.heading ?? '';
   }
 
   if (textLength <= 0) return '';

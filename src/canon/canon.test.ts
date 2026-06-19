@@ -75,14 +75,12 @@ describe('relocate', () => {
   });
 
   it('locates around a fi ligature and the span includes the ligature char', () => {
-    const source = 'We aﬃrm this.';
-    // 'ﬃ' is a 3-letter ligature (U+FB03) — not in our table. Use the simpler ﬁ ligature.
-    const sourceFi = 'We aﬁrm this.';
-    const r = relocate(sourceFi, 'afirm');
+    // The 3-char 'ﬃ' ligature (U+FB03) isn't in our table; covering the simpler
+    // 2-char 'ﬁ' (U+FB01) is enough to demonstrate the ligature path.
+    const source = 'We aﬁrm this.';
+    const r = relocate(source, 'afirm');
     expect(r.matchTier).toBe('normalized');
-    expect(sourceFi.slice(r.span!.start, r.span!.end)).toBe('aﬁrm');
-    // unused — just keeps the broader source visible to the reader
-    expect(source.length).toBeGreaterThan(0);
+    expect(source.slice(r.span!.start, r.span!.end)).toBe('aﬁrm');
   });
 
   it('locates a quote whose span crosses a "page break" in continuous text (ADR-0009)', () => {
