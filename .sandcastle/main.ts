@@ -23,6 +23,7 @@
 
 import * as sandcastle from "@ai-hero/sandcastle";
 import { podman } from "@ai-hero/sandcastle/sandboxes/podman";
+import { execSync } from "node:child_process";
 
 // ---------------------------------------------------------------------------
 // Configuration
@@ -52,6 +53,9 @@ for (let iteration = 1; iteration <= MAX_ITERATIONS; iteration++) {
 
   // Generate a unique branch name for this iteration.
   const branch = `sandcastle/sequential-reviewer/${Date.now()}`;
+
+  // Whether the review phase finished cleanly — gates the merge to main below.
+  let reviewed = false;
 
   // Create a single sandbox that both the implementer and reviewer share.
   // This gives both agents a real, named branch that persists across phases.
@@ -111,8 +115,21 @@ for (let iteration = 1; iteration <= MAX_ITERATIONS; iteration++) {
     });
 
     console.log("\nReview complete.");
+    reviewed = true;
   } finally {
     await sandbox.close();
+  }
+
+  // Land the reviewed work on main and delete the temp branch, so the next
+  // iteration forks from the new HEAD and the backlog actually advances.
+  // This is merge-to-head semantics layered on the named-branch model — it
+  // keeps the reviewer's `git diff main...branch` gate intact, which a raw
+  // merge-to-head branchStrategy would erase.
+  if (reviewed) {
+    console.log(`\nMerging ${branch} into main...`);
+    execSync(`git merge --ff-only ${branch}`, { stdio: "inherit" });
+    execSync(`git branch -D ${branch}`, { stdio: "inherit" });
+    console.log(`Merged ${branch} into main and deleted the temp branch.`);
   }
 }
 
