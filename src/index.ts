@@ -37,3 +37,5 @@ export type {
   SearchPrinciplesRequest,
   SearchPrinciplesResponse,
 } from './mcp/search-principles-tool';
+export { createPrincipleDbServer, runStdio } from './mcp/server';
+export type { ServerDeps } from './mcp/server';
