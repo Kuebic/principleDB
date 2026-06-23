@@ -8,7 +8,8 @@
     "ingest": "tsx prototype/ingest-spike.ts",
     "sandcastle": "npx tsx .sandcastle/main.ts",
     "typecheck": "tsc --noEmit",
-    "test": "vitest run --passWithNoTests"
+    "test": "vitest run --passWithNoTests",
+    "db:generate": "drizzle-kit generate"
   },
   "devDependencies": {
     "@ai-hero/sandcastle": "^0.10.0",

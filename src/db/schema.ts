@@ -1,0 +1,78 @@
+// Declarative Drizzle schema — the single source of truth that migrations generate
+// from (ADR-0005). Mirrors src/canon/types.ts; PostgresCanonRepository will sit on
+// top of these tables behind the existing CanonRepository port (src/canon/ports.ts).
+//
+// Notes that aren't obvious from the column list:
+// - `quote.span` is split into `span_start`/`span_end` int columns rather than a JSON
+//   blob so a future range query (e.g. "quotes overlapping offset N") is cheap and
+//   indexable. The domain Span is reassembled on read.
+// - `source.structure_map` is jsonb — it's a discriminated union (ADR-0009: PDF
+//   pages / transcript timecodes / text headings / none) where the variants share no
+//   common shape, so jsonb is the honest type, and the label is *derived on read*
+//   (deriveLabel), never stored on the Quote.
+// - `principle.embedding` is pgvector(EMBEDDING_DIM). Dimension is pinned so a change
+//   is a deliberate migration; the default (1536) matches the prototype-validated
+//   text-embedding-3-small, which is what the spike measured against.
+// - Foreign keys cascade on Source delete so removing a Source removes its derived
+//   Principles/Quotes/ReviewCandidates — the Canon stays consistent with its inputs.
+
+import {
+  boolean,
+  integer,
+  jsonb,
+  pgTable,
+  text,
+  vector,
+} from 'drizzle-orm/pg-core';
+import type { StructureMap } from '../canon/types';
+
+export const EMBEDDING_DIM = 1536 as const;
+
+export const source = pgTable('source', {
+  id: text('id').primaryKey(),
+  title: text('title').notNull(),
+  author: text('author').notNull(),
+  kind: text('kind').notNull(),
+  date: text('date').notNull(),
+  text: text('text').notNull(),
+  r2Key: text('r2_key'),
+  structureMap: jsonb('structure_map').$type<StructureMap>().notNull(),
+});
+
+export const principle = pgTable('principle', {
+  id: text('id').primaryKey(),
+  sourceId: text('source_id')
+    .notNull()
+    .references(() => source.id, { onDelete: 'cascade' }),
+  claim: text('claim').notNull(),
+  embedding: vector('embedding', { dimensions: EMBEDDING_DIM }).notNull(),
+  distilModel: text('distil_model').notNull(),
+  distilModelVersion: text('distil_model_version').notNull(),
+  distilPromptVersion: text('distil_prompt_version').notNull(),
+});
+
+export const quote = pgTable('quote', {
+  id: text('id').primaryKey(),
+  principleId: text('principle_id')
+    .notNull()
+    .references(() => principle.id, { onDelete: 'cascade' }),
+  sourceId: text('source_id')
+    .notNull()
+    .references(() => source.id, { onDelete: 'cascade' }),
+  spanStart: integer('span_start').notNull(),
+  spanEnd: integer('span_end').notNull(),
+  located: boolean('located').notNull(),
+  matchTier: text('match_tier').notNull(),
+  distilPromptVersion: text('distil_prompt_version').notNull(),
+});
+
+export const reviewCandidate = pgTable('review_candidate', {
+  id: text('id').primaryKey(),
+  sourceId: text('source_id')
+    .notNull()
+    .references(() => source.id, { onDelete: 'cascade' }),
+  claim: text('claim').notNull(),
+  quoteText: text('quote_text').notNull(),
+  matchTier: text('match_tier').notNull(),
+  dedupState: text('dedup_state').notNull(),
+});
