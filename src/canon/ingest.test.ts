@@ -26,7 +26,7 @@ describe('ingestSource', () => {
       { claim: 'Grace precedes obedience.', quote: 'Grace precedes obedience.' },
     ]);
     const result = await ingestSource(sermon, { provider, repository });
-    expect(result).toEqual({ admitted: 1, review: 0 });
+    expect(result).toEqual({ admitted: 1, merged: 0, review: 0 });
     expect(await repository.getSource('serm1')).not.toBeNull();
   });
 
@@ -37,7 +37,7 @@ describe('ingestSource', () => {
       { claim: 'Drift invention.', quote: 'Something never said in the source at all.' },
     ]);
     const result = await ingestSource(sermon, { provider, repository });
-    expect(result).toEqual({ admitted: 1, review: 1 });
+    expect(result).toEqual({ admitted: 1, merged: 0, review: 1 });
     expect(repository.reviewCandidates()).toHaveLength(1);
     expect(repository.reviewCandidates()[0]!.matchTier).toBe('no-match');
   });

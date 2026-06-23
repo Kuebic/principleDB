@@ -7,11 +7,22 @@
 // database is untouched.
 
 import { randomBytes } from 'node:crypto';
-import { readFileSync } from 'node:fs';
+import { readdirSync, readFileSync } from 'node:fs';
 import { join } from 'node:path';
 import pg from 'pg';
 
-const MIGRATION_PATH = join(process.cwd(), 'drizzle', '0000_sweet_master_mold.sql');
+const MIGRATIONS_DIR = join(process.cwd(), 'drizzle');
+
+function readAllMigrations(): string {
+  // Apply every .sql file in lexical order — drizzle-kit names them with a
+  // monotonically increasing prefix (`0000_…`, `0001_…`), which matches
+  // generation order.
+  return readdirSync(MIGRATIONS_DIR)
+    .filter((f) => f.endsWith('.sql'))
+    .sort()
+    .map((f) => readFileSync(join(MIGRATIONS_DIR, f), 'utf8'))
+    .join('\n--> statement-breakpoint\n');
+}
 
 export function isolatedSchemaName(): string {
   return `test_canon_${randomBytes(6).toString('hex')}`;
@@ -36,10 +47,7 @@ export async function createIsolatedSchema(
   await client.connect();
   try {
     await client.query(`CREATE SCHEMA "${schema}"`);
-    const migration = rewriteMigrationForSchema(
-      readFileSync(MIGRATION_PATH, 'utf8'),
-      schema,
-    );
+    const migration = rewriteMigrationForSchema(readAllMigrations(), schema);
     for (const stmt of migration.split('--> statement-breakpoint')) {
       const s = stmt.trim();
       if (s) await client.query(s);

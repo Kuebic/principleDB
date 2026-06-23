@@ -11,6 +11,7 @@
 import { getTableConfig, type PgTable } from 'drizzle-orm/pg-core';
 import { describe, expect, it } from 'vitest';
 import {
+  dedupDecision,
   EMBEDDING_DIM,
   principle,
   quote,
@@ -40,11 +41,12 @@ function fkTargets(table: PgTable): Array<{
 }
 
 describe('declarative Drizzle schema (ADR-0005)', () => {
-  it('declares the four Canon tables', () => {
+  it('declares the five Canon tables', () => {
     expect(getTableConfig(source).name).toBe('source');
     expect(getTableConfig(principle).name).toBe('principle');
     expect(getTableConfig(quote).name).toBe('quote');
     expect(getTableConfig(reviewCandidate).name).toBe('review_candidate');
+    expect(getTableConfig(dedupDecision).name).toBe('dedup_decision');
   });
 
   describe('source table mirrors Source type', () => {
@@ -119,6 +121,30 @@ describe('declarative Drizzle schema (ADR-0005)', () => {
 
       const fks = fkTargets(reviewCandidate);
       expect(fks).toContainEqual({ column: 'source_id', refTable: 'source', refColumn: 'id' });
+    });
+  });
+
+  describe('dedup_decision table mirrors DedupDecision (issue #5)', () => {
+    it('has id PK, FKs to source + principle, verdict/rationale, score, provenance', () => {
+      expect(column(dedupDecision, 'id').primary).toBe(true);
+      expect(column(dedupDecision, 'source_id').notNull).toBe(true);
+      expect(column(dedupDecision, 'candidate_claim').notNull).toBe(true);
+      // existing_principle_id is nullable so historical records survive a
+      // host Principle being dropped (FK uses ON DELETE SET NULL).
+      expect(column(dedupDecision, 'existing_principle_id').notNull).toBe(false);
+      expect(column(dedupDecision, 'verdict').notNull).toBe(true);
+      expect(column(dedupDecision, 'rationale').notNull).toBe(true);
+      expect(column(dedupDecision, 'similarity_score').notNull).toBe(true);
+      for (const name of ['distil_model', 'distil_model_version', 'distil_prompt_version']) {
+        expect(column(dedupDecision, name).notNull).toBe(true);
+      }
+      const fks = fkTargets(dedupDecision);
+      expect(fks).toContainEqual({ column: 'source_id', refTable: 'source', refColumn: 'id' });
+      expect(fks).toContainEqual({
+        column: 'existing_principle_id',
+        refTable: 'principle',
+        refColumn: 'id',
+      });
     });
   });
 

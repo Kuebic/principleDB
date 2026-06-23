@@ -3,6 +3,8 @@
 
 export { admit } from './canon/admission';
 export type { AdmissionResult } from './canon/admission';
+export { dedup, DEFAULT_DEDUP_THRESHOLD } from './canon/dedup';
+export type { DedupContext, DedupResult } from './canon/dedup';
 export {
   AnthropicIngestProvider,
   DEFAULT_DISTIL_MODEL,
@@ -23,6 +25,8 @@ export type {
   DistilInput,
   IngestProvider,
   QuoteWithPrinciple,
+  ReplacePrinciplesOptions,
+  SameClaimVerdict,
   SearchHit,
 } from './canon/ports';
 export { getQuoteInContext } from './canon/quote-in-context';
@@ -36,6 +40,7 @@ export { relocate } from './canon/relocate';
 export type { RelocateResult } from './canon/relocate';
 export { searchPrinciples } from './canon/search';
 export type {
+  DedupDecision,
   DistilProvenance,
   DistilledItem,
   LocatedQuote,

@@ -20,7 +20,10 @@ import {
 
 type CreateParams = Anthropic.MessageCreateParamsNonStreaming;
 
-function stubClient(toolInput: unknown): {
+function stubClient(
+  toolInput: unknown,
+  toolName = 'extract_principles',
+): {
   client: Anthropic;
   calls: CreateParams[];
 } {
@@ -39,7 +42,7 @@ function stubClient(toolInput: unknown): {
         {
           type: 'tool_use',
           id: 'toolu_test',
-          name: 'extract_principles',
+          name: toolName,
           input: toolInput,
         },
       ],
@@ -144,6 +147,38 @@ describe('AnthropicIngestProvider (unit)', () => {
     const client = { messages: { create } } as unknown as Anthropic;
     const provider = new AnthropicIngestProvider({ client, embed: noEmbed });
     expect(await provider.distil({ title: 't', text: 'x' })).toEqual([]);
+  });
+
+  it('confirmSameClaim forces the same_claim tool and returns the verdict + rationale (issue #5)', async () => {
+    const { client, calls } = stubClient(
+      { same: true, rationale: 'identical wording' },
+      'same_claim',
+    );
+    const provider = new AnthropicIngestProvider({ client, embed: noEmbed });
+    const verdict = await provider.confirmSameClaim(
+      'Grace precedes obedience.',
+      'Grace precedes obedience.',
+    );
+    expect(verdict).toEqual({ same: true, rationale: 'identical wording' });
+
+    expect(calls).toHaveLength(1);
+    const params = calls[0]!;
+    expect(params.tool_choice).toEqual({ type: 'tool', name: 'same_claim' });
+    const tool = params.tools![0] as Anthropic.Tool;
+    expect(tool.name).toBe('same_claim');
+    const userContent = params.messages[0]!.content as string;
+    expect(userContent).toContain('Grace precedes obedience.');
+  });
+
+  it('confirmSameClaim defaults to keep-separate when the model omits the tool (defensive)', async () => {
+    const create = vi.fn(async () => ({
+      content: [{ type: 'text', text: 'oops' }],
+    })) as unknown as Anthropic['messages']['create'];
+    const client = { messages: { create } } as unknown as Anthropic;
+    const provider = new AnthropicIngestProvider({ client, embed: noEmbed });
+    const verdict = await provider.confirmSameClaim('a', 'b');
+    expect(verdict.same).toBe(false);
+    expect(verdict.rationale).toMatch(/defaulting to keep-separate/);
   });
 
   it('delegates embed() to the injected EmbedFn (ADR-0011 split)', async () => {

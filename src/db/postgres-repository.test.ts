@@ -72,7 +72,7 @@ describe.skipIf(!DATABASE_URL)('PostgresCanonRepository (integration)', () => {
   beforeEach(async () => {
     // Clean state between tests so each can use stable IDs.
     await pool.query(
-      `TRUNCATE "${schema}"."review_candidate", "${schema}"."quote", "${schema}"."principle", "${schema}"."source" CASCADE`,
+      `TRUNCATE "${schema}"."dedup_decision", "${schema}"."review_candidate", "${schema}"."quote", "${schema}"."principle", "${schema}"."source" CASCADE`,
     );
   });
 
@@ -201,6 +201,86 @@ describe.skipIf(!DATABASE_URL)('PostgresCanonRepository (integration)', () => {
     expect(await repo.getQuoteById('nope')).toBeNull();
   });
 
+  describe('conservative dedup (issue #5)', () => {
+    const sermonAlt: Source = {
+      id: 'serm2',
+      title: 'Grace before obedience',
+      author: 'Pastor Y',
+      kind: 'sermon',
+      date: '2026-05-22',
+      text: 'Grace precedes obedience here too.',
+      r2Key: null,
+      structureMap: { kind: 'none' },
+    };
+
+    it('attaches a near-identical claim from another Source as a Quote on the existing Principle', async () => {
+      const providerA = new FakeIngestProvider(
+        () => [{ claim: 'Grace precedes obedience.', quote: 'Grace precedes obedience.' }],
+        provenanceA,
+        EMBEDDING_DIM,
+      );
+      await ingestSource(sermon, { provider: providerA, repository: repo });
+
+      const providerB = new FakeIngestProvider(
+        () => [{ claim: 'Grace precedes obedience.', quote: 'Grace precedes obedience here too.' }],
+        provenanceA,
+        EMBEDDING_DIM,
+        () => ({ same: true, rationale: 'identical claim wording' }),
+      );
+      // Use the same provenance so the dedup decision is keyed under it; the
+      // source differs so the cross-source rule fires.
+      const result = await ingestSource(sermonAlt, { provider: providerB, repository: repo });
+
+      expect(result).toEqual({ admitted: 0, merged: 1, review: 0 });
+
+      const hits = await searchPrinciples('grace and obedience', {
+        provider: providerA,
+        repository: repo,
+        limit: 10,
+      });
+      expect(hits).toHaveLength(1);
+      expect(hits[0]!.principle.quotes).toHaveLength(2);
+
+      const decisions = await pool.query(
+        `SELECT id, source_id, verdict, rationale, existing_principle_id FROM "${schema}"."dedup_decision"`,
+      );
+      expect(decisions.rows).toHaveLength(1);
+      expect(decisions.rows[0].verdict).toBe('merged');
+      expect(decisions.rows[0].rationale).toBe('identical claim wording');
+      expect(decisions.rows[0].source_id).toBe('serm2');
+      expect(decisions.rows[0].existing_principle_id).not.toBeNull();
+    });
+
+    it('re-ingest under the same provenance is idempotent — attached quotes and decisions stay at count 1', async () => {
+      const providerA = new FakeIngestProvider(
+        () => [{ claim: 'Grace precedes obedience.', quote: 'Grace precedes obedience.' }],
+        provenanceA,
+        EMBEDDING_DIM,
+      );
+      await ingestSource(sermon, { provider: providerA, repository: repo });
+
+      const providerB = new FakeIngestProvider(
+        () => [{ claim: 'Grace precedes obedience.', quote: 'Grace precedes obedience here too.' }],
+        provenanceA,
+        EMBEDDING_DIM,
+        () => ({ same: true, rationale: 'identical claim wording' }),
+      );
+      await ingestSource(sermonAlt, { provider: providerB, repository: repo });
+      await ingestSource(sermonAlt, { provider: providerB, repository: repo });
+      await ingestSource(sermonAlt, { provider: providerB, repository: repo });
+
+      const decisions = await pool.query(
+        `SELECT id FROM "${schema}"."dedup_decision"`,
+      );
+      expect(decisions.rows).toHaveLength(1);
+
+      const attached = await pool.query(
+        `SELECT id FROM "${schema}"."quote" WHERE source_id = 'serm2'`,
+      );
+      expect(attached.rows).toHaveLength(1);
+    });
+  });
+
   it('routes a no-match item to ReviewCandidates rather than the Canon (ADR-0007 invariant)', async () => {
     const provider = new FakeIngestProvider(
       () => [
@@ -210,7 +290,7 @@ describe.skipIf(!DATABASE_URL)('PostgresCanonRepository (integration)', () => {
       EMBEDDING_DIM,
     );
     const result = await ingestSource(sermon, { provider, repository: repo });
-    expect(result).toEqual({ admitted: 0, review: 1 });
+    expect(result).toEqual({ admitted: 0, merged: 0, review: 1 });
     const { rows } = await pool.query(
       `SELECT id, match_tier, dedup_state FROM "${schema}"."review_candidate"`,
     );

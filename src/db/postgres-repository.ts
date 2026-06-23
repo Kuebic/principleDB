@@ -8,11 +8,17 @@
 // transaction, then insert. Different provenance occupies a different slot, so
 // a model-mixed Canon stays additive and honest.
 
-import { and, eq, inArray, sql, type SQL } from 'drizzle-orm';
+import { and, eq, inArray, ne, sql, type SQL } from 'drizzle-orm';
 import { drizzle, type NodePgDatabase } from 'drizzle-orm/node-postgres';
 import type { PgColumn } from 'drizzle-orm/pg-core';
 import type pg from 'pg';
-import type { CanonRepository, QuoteWithPrinciple, SearchHit } from '../canon/ports';
+import { provenanceTag } from '../canon/admission';
+import type {
+  CanonRepository,
+  QuoteWithPrinciple,
+  ReplacePrinciplesOptions,
+  SearchHit,
+} from '../canon/ports';
 import type {
   DistilProvenance,
   LocatedQuote,
@@ -109,9 +115,13 @@ export class PostgresCanonRepository implements CanonRepository {
     sourceId: string,
     provenance: DistilProvenance,
     principles: Principle[],
+    options?: ReplacePrinciplesOptions,
   ): Promise<void> {
+    const attachedQuotes = options?.attachedQuotes ?? [];
+    const decisions = options?.decisions ?? [];
     await this.db.transaction(async (tx) => {
-      // Quotes cascade via the principle_id FK.
+      // 1. Drop principles owned by this (sourceId, provenance) slot.
+      //    Their own quotes cascade via the principle_id FK.
       await tx.delete(schema.principle).where(
         and(
           eq(schema.principle.sourceId, sourceId),
@@ -121,24 +131,66 @@ export class PostgresCanonRepository implements CanonRepository {
         ),
       );
 
-      if (principles.length === 0) return;
+      // 2. Drop attached quotes — quotes from THIS source whose host
+      //    Principle lives under a different source (i.e. previous dedup
+      //    merges). The cascade above only catches own-principle quotes;
+      //    these need an explicit delete or they would leak across
+      //    re-ingests. They are uniquely identifiable by ID prefix —
+      //    `${sourceId}#${tag}#aq…` — where tag encodes the full
+      //    provenance.
+      const attachedPrefix = `${sourceId}#${provenanceTag(provenance)}#aq%`;
+      await tx
+        .delete(schema.quote)
+        .where(sql`${schema.quote.id} LIKE ${attachedPrefix}`);
 
-      await tx.insert(schema.principle).values(
-        principles.map((p) => ({
-          id: p.id,
-          sourceId,
-          claim: p.claim,
-          embedding: p.embedding,
-          distilModel: p.distilModel,
-          distilModelVersion: p.distilModelVersion,
-          distilPromptVersion: p.distilPromptVersion,
-        })),
+      // 3. Drop dedup decisions for this (sourceId, provenance) slot so
+      //    the log stays in sync with the principles it explains.
+      await tx.delete(schema.dedupDecision).where(
+        and(
+          eq(schema.dedupDecision.sourceId, sourceId),
+          eq(schema.dedupDecision.distilModel, provenance.distilModel),
+          eq(schema.dedupDecision.distilModelVersion, provenance.distilModelVersion),
+          eq(schema.dedupDecision.distilPromptVersion, provenance.distilPromptVersion),
+        ),
       );
 
-      const quotes = principles.flatMap((p) => p.quotes);
-      if (quotes.length > 0) {
+      // 4. Insert fresh principles + their quotes.
+      if (principles.length > 0) {
+        await tx.insert(schema.principle).values(
+          principles.map((p) => ({
+            id: p.id,
+            sourceId,
+            claim: p.claim,
+            embedding: p.embedding,
+            distilModel: p.distilModel,
+            distilModelVersion: p.distilModelVersion,
+            distilPromptVersion: p.distilPromptVersion,
+          })),
+        );
+
+        const quotes = principles.flatMap((p) => p.quotes);
+        if (quotes.length > 0) {
+          await tx.insert(schema.quote).values(
+            quotes.map((q) => ({
+              id: q.id,
+              principleId: q.principleId,
+              sourceId: q.sourceId,
+              spanStart: q.span.start,
+              spanEnd: q.span.end,
+              located: q.located,
+              matchTier: q.matchTier,
+              distilPromptVersion: q.distilPromptVersion,
+            })),
+          );
+        }
+      }
+
+      // 5. Insert attached quotes (dedup merges) — host Principle lives
+      //    under another source's slot, but the Quote text is from THIS
+      //    Source.
+      if (attachedQuotes.length > 0) {
         await tx.insert(schema.quote).values(
-          quotes.map((q) => ({
+          attachedQuotes.map((q) => ({
             id: q.id,
             principleId: q.principleId,
             sourceId: q.sourceId,
@@ -150,7 +202,58 @@ export class PostgresCanonRepository implements CanonRepository {
           })),
         );
       }
+
+      // 6. Insert dedup decisions.
+      if (decisions.length > 0) {
+        await tx.insert(schema.dedupDecision).values(
+          decisions.map((d) => ({
+            id: d.id,
+            sourceId: d.sourceId,
+            candidateClaim: d.candidateClaim,
+            existingPrincipleId: d.existingPrincipleId,
+            verdict: d.verdict,
+            rationale: d.rationale,
+            similarityScore: d.similarityScore,
+            distilModel: d.distilModel,
+            distilModelVersion: d.distilModelVersion,
+            distilPromptVersion: d.distilPromptVersion,
+          })),
+        );
+      }
     });
+  }
+
+  async findSimilarPrinciplesExcludingSource(
+    embedding: number[],
+    excludeSourceId: string,
+    threshold: number,
+    limit: number,
+  ): Promise<SearchHit[]> {
+    const distance = pgCosineDistance(schema.principle.embedding, embedding);
+    const score = sql<number>`1 - (${distance})`;
+    const rows = await this.db
+      .select({
+        id: schema.principle.id,
+        claim: schema.principle.claim,
+        embedding: schema.principle.embedding,
+        distilModel: schema.principle.distilModel,
+        distilModelVersion: schema.principle.distilModelVersion,
+        distilPromptVersion: schema.principle.distilPromptVersion,
+        score,
+      })
+      .from(schema.principle)
+      .where(
+        and(
+          ne(schema.principle.sourceId, excludeSourceId),
+          sql`1 - (${distance}) >= ${threshold}`,
+        ),
+      )
+      .orderBy(distance)
+      .limit(limit);
+
+    if (rows.length === 0) return [];
+
+    return this.hydrateSearchHits(rows);
   }
 
   async addReviewCandidates(candidates: ReviewCandidate[]): Promise<void> {
@@ -187,7 +290,20 @@ export class PostgresCanonRepository implements CanonRepository {
       .limit(limit);
 
     if (rows.length === 0) return [];
+    return this.hydrateSearchHits(rows);
+  }
 
+  private async hydrateSearchHits(
+    rows: ReadonlyArray<{
+      id: string;
+      claim: string;
+      embedding: number[];
+      distilModel: string;
+      distilModelVersion: string;
+      distilPromptVersion: string;
+      score: number;
+    }>,
+  ): Promise<SearchHit[]> {
     const principleIds = rows.map((r) => r.id);
     const quoteRows = await this.db
       .select()

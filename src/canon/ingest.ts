@@ -1,16 +1,21 @@
-// ingestSource — the v1 walking-skeleton pipeline (issue #2).
+// ingestSource — the Canon ingest pipeline.
 //
-// distil → admit (relocation + admission gate) → embed admitted claims → persist.
+// distil → admit (relocation + admission gate) → embed admitted claims →
+// conservative dedup (issue #5: vector prefilter + LLM "same claim?" confirm,
+// cross-Source only) → persist.
 //
 // Idempotent under a pinned (sourceId, provenance) per ADR-0008: repeated
-// runs replace that slot, not append.
+// runs replace that slot, not append. Attached-quote merges and dedup
+// decisions are scoped to the same slot so they too clear on re-ingest.
 
 import { admit } from './admission';
+import { dedup } from './dedup';
 import type { CanonRepository, IngestProvider } from './ports';
 import type { Source } from './types';
 
 export interface IngestResult {
   admitted: number;
+  merged: number;
   review: number;
 }
 
@@ -31,10 +36,26 @@ export async function ingestSource(
     });
   }
 
-  await repository.replacePrinciplesForSource(source.id, provider.provenance, principles);
+  const { freshPrinciples, attachedQuotes, decisions } = await dedup(
+    principles,
+    source,
+    provider.provenance,
+    { provider, repository },
+  );
+
+  await repository.replacePrinciplesForSource(
+    source.id,
+    provider.provenance,
+    freshPrinciples,
+    { attachedQuotes, decisions },
+  );
   if (reviewCandidates.length > 0) {
     await repository.addReviewCandidates(reviewCandidates);
   }
 
-  return { admitted: principles.length, review: reviewCandidates.length };
+  return {
+    admitted: freshPrinciples.length,
+    merged: attachedQuotes.length,
+    review: reviewCandidates.length,
+  };
 }

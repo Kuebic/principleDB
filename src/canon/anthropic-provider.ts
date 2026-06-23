@@ -12,7 +12,7 @@
 import Anthropic from '@anthropic-ai/sdk';
 
 import type { DistilProvenance, DistilledItem } from './types';
-import type { DistilInput, IngestProvider } from './ports';
+import type { DistilInput, IngestProvider, SameClaimVerdict } from './ports';
 import type { EmbedFn } from './openai-embedder';
 
 export const DEFAULT_DISTIL_MODEL = 'claude-opus-4-8';
@@ -32,6 +32,35 @@ Rules:
 - Granularity is faithful-descriptive only. Do not rank Principles by importance.
 
 Use the extract_principles tool to return your result. Do not respond with prose.`;
+
+// The dedup confirm prompt (issue #5, ADR-0006). The Canon collapses only
+// near-identical claims — different framings of a similar idea stay
+// separate, and live relatedness (slice 7) connects them. The model returns
+// a structured verdict via tool-use plus a short rationale the Owner can
+// inspect via the dedup decision log.
+const SAME_CLAIM_SYSTEM = `You are the conservative-dedup judge for the principleDB Canon.
+Two atomic Principles are presented: claim A (already in the Canon) and claim B (newly distilled).
+Decide whether they are the SAME teaching claim — same general/normative content, in canonical wording — or distinct teachings that merely overlap in subject.
+
+Be conservative: when in doubt, return same=false. The Canon prefers two principles that genuinely overlap over collapsing a distinct framing. Live relatedness will connect them at query time without losing nuance.
+
+Use the same_claim tool. Provide a one-sentence rationale.`;
+
+const SAME_CLAIM_TOOL: Anthropic.Tool = {
+  name: 'same_claim',
+  description: 'Return whether claim A and claim B are the same teaching claim.',
+  input_schema: {
+    type: 'object',
+    properties: {
+      same: { type: 'boolean', description: 'true if A and B are the same teaching claim.' },
+      rationale: {
+        type: 'string',
+        description: 'A one-sentence rationale the Owner can inspect.',
+      },
+    },
+    required: ['same', 'rationale'],
+  },
+};
 
 const DISTIL_TOOL: Anthropic.Tool = {
   name: 'extract_principles',
@@ -134,5 +163,33 @@ export class AnthropicIngestProvider implements IngestProvider {
 
   async embed(claims: string[]): Promise<number[][]> {
     return this.embedFn(claims);
+  }
+
+  async confirmSameClaim(a: string, b: string): Promise<SameClaimVerdict> {
+    const response = await this.client.messages.create({
+      model: this.model,
+      max_tokens: 512,
+      system: SAME_CLAIM_SYSTEM,
+      tools: [SAME_CLAIM_TOOL],
+      tool_choice: { type: 'tool', name: 'same_claim' },
+      messages: [
+        {
+          role: 'user',
+          content: `Claim A: ${a}\nClaim B: ${b}`,
+        },
+      ],
+    });
+    for (const block of response.content) {
+      if (block.type === 'tool_use' && block.name === 'same_claim') {
+        const parsed = block.input as { same?: unknown; rationale?: unknown };
+        const same = parsed.same === true;
+        const rationale =
+          typeof parsed.rationale === 'string' ? parsed.rationale : '(no rationale returned)';
+        return { same, rationale };
+      }
+    }
+    // Defensive: with forced tool_choice this branch should not fire. If it
+    // does, err conservative and keep the two Principles separate.
+    return { same: false, rationale: '(no tool_use response; defaulting to keep-separate)' };
   }
 }

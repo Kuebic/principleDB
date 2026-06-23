@@ -10,6 +10,7 @@
 // MCP tools and the future Formation layer are adapters over the same ports.
 
 import type {
+  DedupDecision,
   DistilProvenance,
   DistilledItem,
   LocatedQuote,
@@ -23,10 +24,19 @@ export interface DistilInput {
   text: string;
 }
 
+export interface SameClaimVerdict {
+  same: boolean;
+  rationale: string;
+}
+
 export interface IngestProvider {
   readonly provenance: DistilProvenance;
   distil(input: DistilInput): Promise<DistilledItem[]>;
   embed(claims: string[]): Promise<number[][]>;
+  // The conservative-dedup "same claim?" confirm step (issue #5, ADR-0006).
+  // Returns whether the two atomic claims are the same teaching plus a
+  // rationale the Owner can inspect via the dedup decision log.
+  confirmSameClaim(a: string, b: string): Promise<SameClaimVerdict>;
 }
 
 export interface SearchHit {
@@ -42,6 +52,16 @@ export interface QuoteWithPrinciple {
   principleClaim: string;
 }
 
+// Extra ingest output written alongside the new Principles. Kept on the same
+// repository call so a transactional implementation can apply all three
+// atomically (`replacePrinciplesForSource` already wipes the slot — attached
+// quotes and decisions tagged with the same (sourceId, provenance) are wiped
+// in the same transaction so re-ingest stays idempotent).
+export interface ReplacePrinciplesOptions {
+  attachedQuotes?: LocatedQuote[];
+  decisions?: DedupDecision[];
+}
+
 export interface CanonRepository {
   upsertSource(source: Source): Promise<void>;
   getSource(id: string): Promise<Source | null>;
@@ -50,7 +70,19 @@ export interface CanonRepository {
     sourceId: string,
     provenance: DistilProvenance,
     principles: Principle[],
+    options?: ReplacePrinciplesOptions,
   ): Promise<void>;
   addReviewCandidates(candidates: ReviewCandidate[]): Promise<void>;
   searchByEmbedding(queryEmbedding: number[], limit: number): Promise<SearchHit[]>;
+  // Vector prefilter for dedup. Returns the top-`limit` Principles whose
+  // embedding is at or above `threshold` cosine to `embedding`, EXCLUDING any
+  // Principle whose origin is `excludeSourceId` — dedup is a cross-Source
+  // concern (ADR-0006/0008); the same source under different provenance must
+  // not collapse into itself.
+  findSimilarPrinciplesExcludingSource(
+    embedding: number[],
+    excludeSourceId: string,
+    threshold: number,
+    limit: number,
+  ): Promise<SearchHit[]>;
 }

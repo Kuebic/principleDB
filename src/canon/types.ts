@@ -70,3 +70,22 @@ export interface ReviewCandidate {
   matchTier: 'no-match';
   dedupState: 'pending';
 }
+
+// Conservative-dedup audit trail (issue #5, ADR-0006). One row per LLM
+// consultation: the AI distilled a new claim, the vector prefilter found a
+// near neighbour above threshold, and the model was asked "same claim?".
+// Verdict `merged` attached the new Quote to `existingPrincipleId`;
+// `kept-separate` recorded that the model said no. No-candidate cases are
+// not logged — there is nothing to inspect.
+export interface DedupDecision {
+  id: string;
+  sourceId: string;
+  candidateClaim: string;
+  existingPrincipleId: string | null;
+  verdict: 'merged' | 'kept-separate';
+  rationale: string;
+  similarityScore: number;
+  distilModel: string;
+  distilModelVersion: string;
+  distilPromptVersion: string;
+}

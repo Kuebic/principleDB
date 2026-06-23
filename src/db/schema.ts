@@ -18,6 +18,7 @@
 
 import {
   boolean,
+  doublePrecision,
   integer,
   jsonb,
   pgTable,
@@ -75,4 +76,32 @@ export const reviewCandidate = pgTable('review_candidate', {
   quoteText: text('quote_text').notNull(),
   matchTier: text('match_tier').notNull(),
   dedupState: text('dedup_state').notNull(),
+});
+
+// Conservative-dedup audit trail (issue #5, ADR-0006). One row per LLM
+// "same claim?" consultation. The Owner can inspect why a candidate merged
+// (or stayed separate) without re-running the model.
+//
+// `existing_principle_id` is `set null` on cascade so dropping a host
+// Principle does not silently drop the historical record of why something
+// merged into it — the row stays with a null pointer.
+//
+// Provenance columns mirror principle/quote: same (sourceId + provenance)
+// slot wipes its decisions on re-ingest so the log stays in sync with the
+// principles it explains.
+export const dedupDecision = pgTable('dedup_decision', {
+  id: text('id').primaryKey(),
+  sourceId: text('source_id')
+    .notNull()
+    .references(() => source.id, { onDelete: 'cascade' }),
+  candidateClaim: text('candidate_claim').notNull(),
+  existingPrincipleId: text('existing_principle_id').references(() => principle.id, {
+    onDelete: 'set null',
+  }),
+  verdict: text('verdict').notNull(),
+  rationale: text('rationale').notNull(),
+  similarityScore: doublePrecision('similarity_score').notNull(),
+  distilModel: text('distil_model').notNull(),
+  distilModelVersion: text('distil_model_version').notNull(),
+  distilPromptVersion: text('distil_prompt_version').notNull(),
 });
