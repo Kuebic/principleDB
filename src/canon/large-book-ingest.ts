@@ -73,8 +73,7 @@ export async function ingestLargeBookSource(
 ): Promise<IngestLargeBookResult> {
   const { sectionedExtractor, blobs, provider, repository } = deps;
   const target = options.target ?? 'cpu';
-  const read =
-    options.readPdf ?? ((p: string) => readFile(p).then((buf) => new Uint8Array(buf)));
+  const read = options.readPdf ?? ((p) => readFile(p).then((buf) => new Uint8Array(buf)));
 
   const pdfBytes = await read(pdfPath);
   const r2Key = r2KeyForPdfSource(meta.id);

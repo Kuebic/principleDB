@@ -33,7 +33,10 @@ export interface ParsedMarkerOutput {
   structureMap: Extract<StructureMap, { kind: 'pdf-pages' }>;
 }
 
-const SEPARATOR_RE = /^\{(\d+)\}-+$/;
+// Marker's per-page anchor line: `{N}---` (or longer dash run) on its own line, with
+// N 0-indexed. Exported so boundary-normalize.ts recognizes anchors the same way the
+// parser does — one definition, two consumers.
+export const PAGE_ANCHOR_RE = /^\{(\d+)\}-+$/;
 
 export function parseMarkerOutput(annotated: string): ParsedMarkerOutput {
   interface Section {
@@ -43,7 +46,7 @@ export function parseMarkerOutput(annotated: string): ParsedMarkerOutput {
   const sections: Section[] = [{ page: null, lines: [] }];
 
   for (const line of annotated.split('\n')) {
-    const m = SEPARATOR_RE.exec(line);
+    const m = PAGE_ANCHOR_RE.exec(line);
     if (m) {
       sections.push({ page: Number(m[1]) + 1, lines: [] });
     } else {

@@ -19,10 +19,9 @@
 // Idempotent: once leaks are gone, a second pass finds nothing more to drop and
 // returns the chunks byte-identical with an empty action log.
 
+import { PAGE_ANCHOR_RE } from './marker';
 import { alnumize, normalize } from './normalize';
 import type { MarkerChunk } from './marker-sections';
-
-const PAGE_ANCHOR_RE = /^\{(\d+)\}-+$/;
 
 // How many trailing content paragraphs of section N to consider as candidates for
 // having leaked into section N+1's head. Larger windows tolerate longer leaks at the
@@ -74,11 +73,9 @@ function tokenize(markdown: string): Block[] {
   const blocks: Block[] = [];
   let contentBuf: string[] = [];
 
+  // Only non-blank, non-anchor lines reach contentBuf (blank lines trigger flush
+  // at the loop), so no leading/trailing whitespace trim is needed here.
   const flushContent = (): void => {
-    while (contentBuf.length > 0 && contentBuf[0]!.trim() === '') contentBuf.shift();
-    while (contentBuf.length > 0 && contentBuf[contentBuf.length - 1]!.trim() === '') {
-      contentBuf.pop();
-    }
     if (contentBuf.length === 0) return;
     const text = contentBuf.join('\n');
     blocks.push({ kind: 'content', text, fingerprint: fingerprint(text) });
