@@ -39,6 +39,15 @@ export type { EmbedFn, OpenAIEmbedderOptions } from './canon/openai-embedder';
 export { InMemoryRepository } from './canon/in-memory-repository';
 export { ingestSource } from './canon/ingest';
 export type { IngestResult } from './canon/ingest';
+export { bulkIngest, InMemoryBulkProgressStore } from './canon/bulk-ingest';
+export type {
+  BulkIngestFailure,
+  BulkIngestJob,
+  BulkIngestOptions,
+  BulkIngestResult,
+  BulkIngestSuccess,
+  BulkProgressStore,
+} from './canon/bulk-ingest';
 export { alnumize, normalize } from './canon/normalize';
 export type { NormalizedText, OriginEntry } from './canon/normalize';
 export type {
