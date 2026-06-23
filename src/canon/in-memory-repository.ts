@@ -106,8 +106,8 @@ export class InMemoryRepository implements CanonRepository {
 
   async listReviewCandidates(opts: ListReviewCandidatesOptions): Promise<ReviewCandidate[]> {
     const offset = opts.offset ?? 0;
-    const slice = opts.limit !== undefined ? this.review.slice(offset, offset + opts.limit) : this.review.slice(offset);
-    return slice;
+    const end = opts.limit !== undefined ? offset + opts.limit : undefined;
+    return this.review.slice(offset, end);
   }
 
   async countReviewCandidates(): Promise<number> {
