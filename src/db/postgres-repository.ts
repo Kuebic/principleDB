@@ -12,7 +12,7 @@ import { and, eq, inArray, sql, type SQL } from 'drizzle-orm';
 import { drizzle, type NodePgDatabase } from 'drizzle-orm/node-postgres';
 import type { PgColumn } from 'drizzle-orm/pg-core';
 import type pg from 'pg';
-import type { CanonRepository, SearchHit } from '../canon/ports';
+import type { CanonRepository, QuoteWithPrinciple, SearchHit } from '../canon/ports';
 import type {
   DistilProvenance,
   LocatedQuote,
@@ -69,6 +69,39 @@ export class PostgresCanonRepository implements CanonRepository {
       text: row.text,
       r2Key: row.r2Key,
       structureMap: row.structureMap as StructureMap,
+    };
+  }
+
+  async getQuoteById(quoteId: string): Promise<QuoteWithPrinciple | null> {
+    const rows = await this.db
+      .select({
+        id: schema.quote.id,
+        principleId: schema.quote.principleId,
+        sourceId: schema.quote.sourceId,
+        spanStart: schema.quote.spanStart,
+        spanEnd: schema.quote.spanEnd,
+        located: schema.quote.located,
+        matchTier: schema.quote.matchTier,
+        distilPromptVersion: schema.quote.distilPromptVersion,
+        principleClaim: schema.principle.claim,
+      })
+      .from(schema.quote)
+      .innerJoin(schema.principle, eq(schema.principle.id, schema.quote.principleId))
+      .where(eq(schema.quote.id, quoteId))
+      .limit(1);
+    const row = rows[0];
+    if (!row) return null;
+    return {
+      quote: {
+        id: row.id,
+        principleId: row.principleId,
+        sourceId: row.sourceId,
+        span: { start: row.spanStart, end: row.spanEnd },
+        located: true,
+        matchTier: row.matchTier as LocatedQuote['matchTier'],
+        distilPromptVersion: row.distilPromptVersion,
+      },
+      principleClaim: row.principleClaim,
     };
   }
 

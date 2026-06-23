@@ -12,6 +12,7 @@
 import type {
   DistilProvenance,
   DistilledItem,
+  LocatedQuote,
   Principle,
   ReviewCandidate,
   Source,
@@ -33,9 +34,18 @@ export interface SearchHit {
   score: number;
 }
 
+// Minimal join shape getQuoteInContext needs: the located Quote plus the claim of
+// the Principle it backs. Source is fetched separately via getSource() so the
+// repository doesn't have to triple-join on what is fundamentally a lookup.
+export interface QuoteWithPrinciple {
+  quote: LocatedQuote;
+  principleClaim: string;
+}
+
 export interface CanonRepository {
   upsertSource(source: Source): Promise<void>;
   getSource(id: string): Promise<Source | null>;
+  getQuoteById(quoteId: string): Promise<QuoteWithPrinciple | null>;
   replacePrinciplesForSource(
     sourceId: string,
     provenance: DistilProvenance,

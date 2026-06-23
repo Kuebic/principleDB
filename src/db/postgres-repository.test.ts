@@ -177,6 +177,30 @@ describe.skipIf(!DATABASE_URL)('PostgresCanonRepository (integration)', () => {
     expect(hits).toEqual([]);
   });
 
+  it('getQuoteById round-trips the LocatedQuote and joins in the Principle claim', async () => {
+    const provider = new FakeIngestProvider(
+      () => [{ claim: 'Grace precedes obedience.', quote: 'Grace precedes obedience.' }],
+      provenanceA,
+      EMBEDDING_DIM,
+    );
+    await ingestSource(sermon, { provider, repository: repo });
+    const hits = await searchPrinciples('grace', { provider, repository: repo, limit: 1 });
+    const quoteId = hits[0]!.principle.quotes[0]!.id;
+
+    const record = await repo.getQuoteById(quoteId);
+    expect(record).not.toBeNull();
+    expect(record!.principleClaim).toBe('Grace precedes obedience.');
+    expect(record!.quote.id).toBe(quoteId);
+    expect(record!.quote.sourceId).toBe(sermon.id);
+    expect(sermon.text.slice(record!.quote.span.start, record!.quote.span.end)).toBe(
+      'Grace precedes obedience.',
+    );
+  });
+
+  it('getQuoteById returns null for an unknown id', async () => {
+    expect(await repo.getQuoteById('nope')).toBeNull();
+  });
+
   it('routes a no-match item to ReviewCandidates rather than the Canon (ADR-0007 invariant)', async () => {
     const provider = new FakeIngestProvider(
       () => [

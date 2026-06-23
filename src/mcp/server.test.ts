@@ -5,6 +5,7 @@ import { FakeIngestProvider } from '../canon/fake-provider';
 import { ingestSource } from '../canon/ingest';
 import { InMemoryRepository } from '../canon/in-memory-repository';
 import type { Source } from '../canon/types';
+import type { GetQuoteInContextResponse } from './get-quote-in-context-tool';
 import type { SearchPrinciplesResponse } from './search-principles-tool';
 import { createPrincipleDbServer } from './server';
 
@@ -88,6 +89,71 @@ describe('MCP server wiring (search_principles over JSON-RPC)', () => {
     const client = await wireClient({ provider, repository });
     const result = await client.callTool({
       name: 'search_principles',
+      arguments: {},
+    });
+    expect(result.isError).toBe(true);
+    await client.close();
+  });
+});
+
+describe('MCP server wiring (get_quote_in_context over JSON-RPC)', () => {
+  it('advertises get_quote_in_context in tools/list', async () => {
+    const repository = new InMemoryRepository();
+    const provider = new FakeIngestProvider(() => []);
+    const client = await wireClient({ provider, repository });
+    const { tools } = await client.listTools();
+    const tool = tools.find((t) => t.name === 'get_quote_in_context');
+    expect(tool).toBeDefined();
+    expect(tool!.description).toMatch(/quote/i);
+    expect(tool!.inputSchema.type).toBe('object');
+    expect((tool!.inputSchema.properties as Record<string, unknown>).quoteId).toBeDefined();
+    await client.close();
+  });
+
+  it("tools/call returns the source's own words at the quote's span plus surrounding context", async () => {
+    const repository = new InMemoryRepository();
+    const provider = new FakeIngestProvider(() => [
+      { claim: 'Grace precedes obedience.', quote: 'Grace precedes obedience.' },
+    ]);
+    await ingestSource(sermon, { provider, repository });
+    const hits = await repository.searchByEmbedding((await provider.embed(['x']))[0]!, 1);
+    const quoteId = hits[0]!.principle.quotes[0]!.id;
+
+    const client = await wireClient({ provider, repository });
+    const result = await client.callTool({
+      name: 'get_quote_in_context',
+      arguments: { quoteId },
+    });
+    expect(result.isError).not.toBe(true);
+    const structured = result.structuredContent as unknown as GetQuoteInContextResponse;
+    expect(structured.found).toBe(true);
+    if (!structured.found) return;
+    expect(structured.quote.text).toBe('Grace precedes obedience.');
+    expect(structured.quote.contextAfter).toContain('loved first');
+    expect(structured.principle.claim).toBe('Grace precedes obedience.');
+    expect(structured.source.kind).toBe('sermon');
+    await client.close();
+  });
+
+  it('returns { found: false } for an unknown Quote id (predictable empty shape)', async () => {
+    const repository = new InMemoryRepository();
+    const provider = new FakeIngestProvider(() => []);
+    const client = await wireClient({ provider, repository });
+    const result = await client.callTool({
+      name: 'get_quote_in_context',
+      arguments: { quoteId: 'does-not-exist' },
+    });
+    expect(result.isError).not.toBe(true);
+    expect(result.structuredContent).toEqual({ found: false });
+    await client.close();
+  });
+
+  it('rejects a malformed call (missing quoteId) with isError', async () => {
+    const repository = new InMemoryRepository();
+    const provider = new FakeIngestProvider(() => []);
+    const client = await wireClient({ provider, repository });
+    const result = await client.callTool({
+      name: 'get_quote_in_context',
       arguments: {},
     });
     expect(result.isError).toBe(true);

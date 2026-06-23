@@ -22,8 +22,16 @@ export type {
   CanonRepository,
   DistilInput,
   IngestProvider,
+  QuoteWithPrinciple,
   SearchHit,
 } from './canon/ports';
+export { getQuoteInContext } from './canon/quote-in-context';
+export type {
+  GetQuoteInContextDeps,
+  GetQuoteInContextResponse,
+  QuoteInContextHit,
+  QuoteInContextMiss,
+} from './canon/quote-in-context';
 export { relocate } from './canon/relocate';
 export type { RelocateResult } from './canon/relocate';
 export { searchPrinciples } from './canon/search';
@@ -39,6 +47,8 @@ export type {
   Span,
   StructureMap,
 } from './canon/types';
+export { getQuoteInContextTool } from './mcp/get-quote-in-context-tool';
+export type { GetQuoteInContextRequest } from './mcp/get-quote-in-context-tool';
 export { searchPrinciplesTool } from './mcp/search-principles-tool';
 export type {
   SearchHitResponse,

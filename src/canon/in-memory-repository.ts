@@ -12,7 +12,7 @@ import type {
   ReviewCandidate,
   Source,
 } from './types';
-import type { CanonRepository, SearchHit } from './ports';
+import type { CanonRepository, QuoteWithPrinciple, SearchHit } from './ports';
 
 function provenanceKey(sourceId: string, p: DistilProvenance): string {
   return `${sourceId}|${p.distilModel}|${p.distilModelVersion}|${p.distilPromptVersion}`;
@@ -43,6 +43,19 @@ export class InMemoryRepository implements CanonRepository {
 
   async getSource(id: string): Promise<Source | null> {
     return this.sources.get(id) ?? null;
+  }
+
+  async getQuoteById(quoteId: string): Promise<QuoteWithPrinciple | null> {
+    for (const principles of this.principlesBySlot.values()) {
+      for (const principle of principles) {
+        for (const quote of principle.quotes) {
+          if (quote.id === quoteId) {
+            return { quote, principleClaim: principle.claim };
+          }
+        }
+      }
+    }
+    return null;
   }
 
   async replacePrinciplesForSource(
