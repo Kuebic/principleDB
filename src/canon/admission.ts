@@ -8,6 +8,7 @@
 // IDs (idempotent), while a different model occupies a distinct ID slot so a
 // model-mixed Canon stays additive instead of colliding on the principle PK.
 
+import { fnv1a32 } from './hash';
 import { relocate } from './relocate';
 import type {
   DistilProvenance,
@@ -19,13 +20,8 @@ import type {
 } from './types';
 
 export function provenanceTag(p: DistilProvenance): string {
-  const s = `${p.distilModel}|${p.distilModelVersion}|${p.distilPromptVersion}`;
-  let h = 0x811c9dc5;
-  for (let i = 0; i < s.length; i++) {
-    h ^= s.charCodeAt(i);
-    h = Math.imul(h, 0x01000193) >>> 0;
-  }
-  return h.toString(16).padStart(8, '0');
+  const key = `${p.distilModel}|${p.distilModelVersion}|${p.distilPromptVersion}`;
+  return fnv1a32(key).toString(16).padStart(8, '0');
 }
 
 export interface AdmissionResult {

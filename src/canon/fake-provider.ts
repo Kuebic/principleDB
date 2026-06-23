@@ -2,6 +2,7 @@
 // search is meaningful in the golden test. Lets the whole ingest pipeline + MCP tool
 // run end-to-end without an API key.
 
+import { fnv1a32 } from './hash';
 import type { DistilProvenance, DistilledItem } from './types';
 import type { DistilInput, IngestProvider } from './ports';
 
@@ -11,20 +12,11 @@ const DEFAULT_PROVENANCE: DistilProvenance = {
   distilPromptVersion: 'test-v1',
 };
 
-function fnv1a(s: string): number {
-  let h = 0x811c9dc5;
-  for (let i = 0; i < s.length; i++) {
-    h ^= s.charCodeAt(i);
-    h = Math.imul(h, 0x01000193) >>> 0;
-  }
-  return h >>> 0;
-}
-
 function bagOfWordsEmbedding(text: string, dim: number): number[] {
   const vec = new Array<number>(dim).fill(0);
   const tokens = text.toLowerCase().split(/[^a-z0-9]+/).filter(Boolean);
   for (const tok of tokens) {
-    const h = fnv1a(tok) % dim;
+    const h = fnv1a32(tok) % dim;
     vec[h] = vec[h]! + 1;
   }
   let norm = 0;
