@@ -24,6 +24,7 @@ export type {
   CanonRepository,
   DistilInput,
   IngestProvider,
+  ListReviewCandidatesOptions,
   QuoteWithPrinciple,
   ReplacePrinciplesOptions,
   SameClaimVerdict,
@@ -38,6 +39,16 @@ export type {
 } from './canon/quote-in-context';
 export { relocate } from './canon/relocate';
 export type { RelocateResult } from './canon/relocate';
+export { listReviewQueue, resolveReviewItem } from './canon/review-queue';
+export type {
+  ListReviewQueueDeps,
+  ListReviewQueueOptions,
+  ResolveReviewItemDeps,
+  ResolveReviewItemInput,
+  ReviewQueueItem,
+  ReviewQueueListing,
+  ReviewResolution,
+} from './canon/review-queue';
 export { searchPrinciples } from './canon/search';
 export type {
   DedupDecision,
@@ -54,6 +65,10 @@ export type {
 } from './canon/types';
 export { getQuoteInContextTool } from './mcp/get-quote-in-context-tool';
 export type { GetQuoteInContextRequest } from './mcp/get-quote-in-context-tool';
+export { listReviewQueueTool } from './mcp/list-review-queue-tool';
+export type { ListReviewQueueRequest } from './mcp/list-review-queue-tool';
+export { resolveReviewItemTool } from './mcp/resolve-review-item-tool';
+export type { ResolveReviewItemRequest } from './mcp/resolve-review-item-tool';
 export { searchPrinciplesTool } from './mcp/search-principles-tool';
 export type {
   SearchHitResponse,

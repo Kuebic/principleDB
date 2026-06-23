@@ -62,6 +62,15 @@ export interface ReplacePrinciplesOptions {
   decisions?: DedupDecision[];
 }
 
+// Pagination knobs for the Review queue listing (slice 6, issue #6).
+// `limit`/`offset` are optional so the call shape stays terse for callers that
+// just want the head of the queue. Order is stable insertion order — newest
+// candidates at the tail — so paging through is predictable.
+export interface ListReviewCandidatesOptions {
+  limit?: number;
+  offset?: number;
+}
+
 export interface CanonRepository {
   upsertSource(source: Source): Promise<void>;
   getSource(id: string): Promise<Source | null>;
@@ -73,6 +82,19 @@ export interface CanonRepository {
     options?: ReplacePrinciplesOptions,
   ): Promise<void>;
   addReviewCandidates(candidates: ReviewCandidate[]): Promise<void>;
+  // Review-queue surface (slice 6, issue #6). The resolver workflow is
+  // per-row: list → get → on confirm/correct, insert an admitted Principle +
+  // remove the candidate; on reject, just remove the candidate.
+  // `insertReviewAdmittedPrinciple` is intentionally NOT scoped to the
+  // `(sourceId, provenance)` slot used by `replacePrinciplesForSource` — a
+  // review-admitted Principle is a per-candidate decision that should
+  // survive routine re-ingest of the same Source, so it uses a distinct ID
+  // namespace (`${candidate.id}#admitted` / `…#admitted-q`).
+  listReviewCandidates(opts: ListReviewCandidatesOptions): Promise<ReviewCandidate[]>;
+  countReviewCandidates(): Promise<number>;
+  getReviewCandidate(id: string): Promise<ReviewCandidate | null>;
+  removeReviewCandidate(id: string): Promise<void>;
+  insertReviewAdmittedPrinciple(principle: Principle, sourceId: string): Promise<void>;
   searchByEmbedding(queryEmbedding: number[], limit: number): Promise<SearchHit[]>;
   // Vector prefilter for dedup. Returns the top-`limit` Principles whose
   // embedding is at or above `threshold` cosine to `embedding`, EXCLUDING any

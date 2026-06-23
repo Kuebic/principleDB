@@ -8,13 +8,14 @@
 // transaction, then insert. Different provenance occupies a different slot, so
 // a model-mixed Canon stays additive and honest.
 
-import { and, eq, inArray, ne, sql, type SQL } from 'drizzle-orm';
+import { and, asc, eq, inArray, ne, sql, type SQL } from 'drizzle-orm';
 import { drizzle, type NodePgDatabase } from 'drizzle-orm/node-postgres';
 import type { PgColumn } from 'drizzle-orm/pg-core';
 import type pg from 'pg';
 import { provenanceTag } from '../canon/admission';
 import type {
   CanonRepository,
+  ListReviewCandidatesOptions,
   QuoteWithPrinciple,
   ReplacePrinciplesOptions,
   SearchHit,
@@ -270,6 +271,69 @@ export class PostgresCanonRepository implements CanonRepository {
     );
   }
 
+  async listReviewCandidates(opts: ListReviewCandidatesOptions): Promise<ReviewCandidate[]> {
+    const builder = this.db
+      .select()
+      .from(schema.reviewCandidate)
+      .orderBy(asc(schema.reviewCandidate.id));
+    if (opts.limit !== undefined) builder.limit(opts.limit);
+    if (opts.offset !== undefined) builder.offset(opts.offset);
+    const rows = await builder;
+    return rows.map(toReviewCandidate);
+  }
+
+  async countReviewCandidates(): Promise<number> {
+    const rows = await this.db
+      .select({ count: sql<number>`count(*)::int` })
+      .from(schema.reviewCandidate);
+    return Number(rows[0]?.count ?? 0);
+  }
+
+  async getReviewCandidate(id: string): Promise<ReviewCandidate | null> {
+    const rows = await this.db
+      .select()
+      .from(schema.reviewCandidate)
+      .where(eq(schema.reviewCandidate.id, id))
+      .limit(1);
+    const row = rows[0];
+    return row ? toReviewCandidate(row) : null;
+  }
+
+  async removeReviewCandidate(id: string): Promise<void> {
+    await this.db.delete(schema.reviewCandidate).where(eq(schema.reviewCandidate.id, id));
+  }
+
+  async insertReviewAdmittedPrinciple(
+    principle: Principle,
+    sourceId: string,
+  ): Promise<void> {
+    await this.db.transaction(async (tx) => {
+      await tx.insert(schema.principle).values({
+        id: principle.id,
+        sourceId,
+        claim: principle.claim,
+        embedding: principle.embedding,
+        distilModel: principle.distilModel,
+        distilModelVersion: principle.distilModelVersion,
+        distilPromptVersion: principle.distilPromptVersion,
+      });
+      if (principle.quotes.length > 0) {
+        await tx.insert(schema.quote).values(
+          principle.quotes.map((q) => ({
+            id: q.id,
+            principleId: q.principleId,
+            sourceId: q.sourceId,
+            spanStart: q.span.start,
+            spanEnd: q.span.end,
+            located: q.located,
+            matchTier: q.matchTier,
+            distilPromptVersion: q.distilPromptVersion,
+          })),
+        );
+      }
+    });
+  }
+
   async searchByEmbedding(queryEmbedding: number[], limit: number): Promise<SearchHit[]> {
     // pgvector's <=> operator requires an explicit ::vector cast on the
     // parameter — drizzle's `cosineDistance` helper ships the value as an
@@ -339,4 +403,22 @@ export class PostgresCanonRepository implements CanonRepository {
       score: Number(r.score),
     }));
   }
+}
+
+function toReviewCandidate(row: {
+  id: string;
+  sourceId: string;
+  claim: string;
+  quoteText: string;
+  matchTier: string;
+  dedupState: string;
+}): ReviewCandidate {
+  return {
+    id: row.id,
+    sourceId: row.sourceId,
+    claim: row.claim,
+    quoteText: row.quoteText,
+    matchTier: row.matchTier as ReviewCandidate['matchTier'],
+    dedupState: row.dedupState as ReviewCandidate['dedupState'],
+  };
 }

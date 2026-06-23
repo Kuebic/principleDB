@@ -20,6 +20,7 @@ import type {
 } from './types';
 import type {
   CanonRepository,
+  ListReviewCandidatesOptions,
   QuoteWithPrinciple,
   ReplacePrinciplesOptions,
   SearchHit,
@@ -56,6 +57,11 @@ export class InMemoryRepository implements CanonRepository {
   private readonly attachedQuotesBySlot = new Map<string, LocatedQuote[]>();
   private readonly decisionsBySlot = new Map<string, DedupDecision[]>();
   private readonly review: ReviewCandidate[] = [];
+  // Review-admitted Principles (slice 6, issue #6) — kept in a distinct slot
+  // from `principlesBySlot` so a future ingest of the same (sourceId,
+  // provenance) does not silently wipe a Principle the Owner explicitly
+  // resolved through the queue.
+  private readonly reviewAdmitted: PrincipleHome[] = [];
 
   async upsertSource(source: Source): Promise<void> {
     this.sources.set(source.id, source);
@@ -96,6 +102,29 @@ export class InMemoryRepository implements CanonRepository {
 
   async addReviewCandidates(candidates: ReviewCandidate[]): Promise<void> {
     this.review.push(...candidates);
+  }
+
+  async listReviewCandidates(opts: ListReviewCandidatesOptions): Promise<ReviewCandidate[]> {
+    const offset = opts.offset ?? 0;
+    const slice = opts.limit !== undefined ? this.review.slice(offset, offset + opts.limit) : this.review.slice(offset);
+    return slice;
+  }
+
+  async countReviewCandidates(): Promise<number> {
+    return this.review.length;
+  }
+
+  async getReviewCandidate(id: string): Promise<ReviewCandidate | null> {
+    return this.review.find((c) => c.id === id) ?? null;
+  }
+
+  async removeReviewCandidate(id: string): Promise<void> {
+    const idx = this.review.findIndex((c) => c.id === id);
+    if (idx >= 0) this.review.splice(idx, 1);
+  }
+
+  async insertReviewAdmittedPrinciple(principle: Principle, sourceId: string): Promise<void> {
+    this.reviewAdmitted.push({ principle, sourceId });
   }
 
   async searchByEmbedding(queryEmbedding: number[], limit: number): Promise<SearchHit[]> {
@@ -149,18 +178,20 @@ export class InMemoryRepository implements CanonRepository {
       }
     }
     const homes: PrincipleHome[] = [];
+    const visit = ({ principle, sourceId }: PrincipleHome) => {
+      const attached = attachedByPrincipleId.get(principle.id) ?? [];
+      homes.push({
+        principle:
+          attached.length === 0
+            ? principle
+            : { ...principle, quotes: [...principle.quotes, ...attached] },
+        sourceId,
+      });
+    };
     for (const slot of this.principlesBySlot.values()) {
-      for (const { principle, sourceId } of slot) {
-        const attached = attachedByPrincipleId.get(principle.id) ?? [];
-        homes.push({
-          principle:
-            attached.length === 0
-              ? principle
-              : { ...principle, quotes: [...principle.quotes, ...attached] },
-          sourceId,
-        });
-      }
+      for (const home of slot) visit(home);
     }
+    for (const home of this.reviewAdmitted) visit(home);
     return homes;
   }
 }

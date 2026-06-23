@@ -10,6 +10,8 @@ import { StdioServerTransport } from '@modelcontextprotocol/sdk/server/stdio.js'
 import { z } from 'zod';
 import type { CanonRepository, IngestProvider } from '../canon/ports';
 import { getQuoteInContextTool } from './get-quote-in-context-tool';
+import { listReviewQueueTool } from './list-review-queue-tool';
+import { resolveReviewItemTool } from './resolve-review-item-tool';
 import { searchPrinciplesTool } from './search-principles-tool';
 
 export interface ServerDeps {
@@ -72,6 +74,70 @@ export function createPrincipleDbServer(deps: ServerDeps): McpServer {
     },
     async ({ quoteId, contextChars }) => {
       const response = await getQuoteInContextTool({ quoteId, contextChars }, deps);
+      return {
+        content: [{ type: 'text', text: JSON.stringify(response) }],
+        structuredContent: response as unknown as Record<string, unknown>,
+      };
+    },
+  );
+
+  server.registerTool(
+    'list_review_queue',
+    {
+      description:
+        'List unlocatable ReviewCandidates surfaced by the admission gate — the no-match extractions awaiting Owner judgement. Returns a summary-first shape (progressive disclosure): one row per candidate with a truncated quote preview and the Source title joined in. Empty case is { items: [], total: 0 }.',
+      inputSchema: {
+        limit: z
+          .number()
+          .int()
+          .min(1)
+          .max(100)
+          .optional()
+          .describe('Page size. Defaults to 25.'),
+        offset: z
+          .number()
+          .int()
+          .min(0)
+          .optional()
+          .describe('Pagination offset, in candidate count.'),
+      },
+    },
+    async ({ limit, offset }) => {
+      const response = await listReviewQueueTool({ limit, offset }, deps);
+      return {
+        content: [{ type: 'text', text: JSON.stringify(response) }],
+        structuredContent: response as unknown as Record<string, unknown>,
+      };
+    },
+  );
+
+  server.registerTool(
+    'resolve_review_item',
+    {
+      description:
+        'Resolve a ReviewCandidate: confirm (re-relocate the candidate as-is and admit if it now locates), correct (admit using a corrected quote, optionally a refined claim), or reject (drop). Admission still enforces the ≥1-relocating-Quote invariant (ADR-0007), so confirm/correct decline when the quote does not relocate.',
+      inputSchema: {
+        itemId: z.string().min(1).describe('The ReviewCandidate id, from list_review_queue.'),
+        action: z
+          .enum(['confirm', 'correct', 'reject'])
+          .describe('confirm | correct | reject — see tool description.'),
+        quoteText: z
+          .string()
+          .min(1)
+          .optional()
+          .describe('Required when action=correct: the Source-faithful quote to relocate against.'),
+        claim: z
+          .string()
+          .min(1)
+          .optional()
+          .describe('Optional refinement of the claim when action=correct.'),
+      },
+    },
+    async ({ itemId, action, quoteText, claim }) => {
+      const response = await resolveReviewItemTool(
+        { itemId, action, quoteText, claim },
+        deps,
+      );
       return {
         content: [{ type: 'text', text: JSON.stringify(response) }],
         structuredContent: response as unknown as Record<string, unknown>,

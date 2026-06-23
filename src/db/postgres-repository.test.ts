@@ -298,6 +298,75 @@ describe.skipIf(!DATABASE_URL)('PostgresCanonRepository (integration)', () => {
     expect(rows[0].match_tier).toBe('no-match');
     expect(rows[0].dedup_state).toBe('pending');
   });
+
+  describe('Review queue port (slice 6)', () => {
+    it('listReviewCandidates honours limit + offset and countReviewCandidates returns the total', async () => {
+      await repo.upsertSource(sermon);
+      await repo.addReviewCandidates([
+        { id: 'serm1#m#r0', sourceId: 'serm1', claim: 'A.', quoteText: 'aaa', matchTier: 'no-match', dedupState: 'pending' },
+        { id: 'serm1#m#r1', sourceId: 'serm1', claim: 'B.', quoteText: 'bbb', matchTier: 'no-match', dedupState: 'pending' },
+        { id: 'serm1#m#r2', sourceId: 'serm1', claim: 'C.', quoteText: 'ccc', matchTier: 'no-match', dedupState: 'pending' },
+      ]);
+      expect(await repo.countReviewCandidates()).toBe(3);
+      const page1 = await repo.listReviewCandidates({ limit: 2 });
+      expect(page1).toHaveLength(2);
+      const page2 = await repo.listReviewCandidates({ limit: 2, offset: 2 });
+      expect(page2).toHaveLength(1);
+    });
+
+    it('getReviewCandidate round-trips a single candidate', async () => {
+      await repo.upsertSource(sermon);
+      await repo.addReviewCandidates([
+        { id: 'serm1#m#r0', sourceId: 'serm1', claim: 'A.', quoteText: 'aaa', matchTier: 'no-match', dedupState: 'pending' },
+      ]);
+      const c = await repo.getReviewCandidate('serm1#m#r0');
+      expect(c?.claim).toBe('A.');
+      expect(await repo.getReviewCandidate('nope')).toBeNull();
+    });
+
+    it('removeReviewCandidate deletes the row', async () => {
+      await repo.upsertSource(sermon);
+      await repo.addReviewCandidates([
+        { id: 'serm1#m#r0', sourceId: 'serm1', claim: 'A.', quoteText: 'aaa', matchTier: 'no-match', dedupState: 'pending' },
+      ]);
+      await repo.removeReviewCandidate('serm1#m#r0');
+      expect(await repo.getReviewCandidate('serm1#m#r0')).toBeNull();
+      expect(await repo.countReviewCandidates()).toBe(0);
+    });
+
+    it('insertReviewAdmittedPrinciple inserts the Principle + its Quote and search surfaces it', async () => {
+      await repo.upsertSource(sermon);
+      const provider = new FakeIngestProvider(() => [], provenanceA, EMBEDDING_DIM);
+      const [embedding] = await provider.embed(['Loved first.']);
+      await repo.insertReviewAdmittedPrinciple(
+        {
+          id: 'review-admitted-1',
+          claim: 'Loved first.',
+          embedding: embedding!,
+          quotes: [
+            {
+              id: 'review-admitted-1-q',
+              principleId: 'review-admitted-1',
+              sourceId: 'serm1',
+              span: { start: sermon.text.indexOf('loved first'), end: sermon.text.indexOf('loved first') + 'loved first'.length },
+              located: true,
+              matchTier: 'exact',
+              distilPromptVersion: provenanceA.distilPromptVersion,
+            },
+          ],
+          distilModel: provenanceA.distilModel,
+          distilModelVersion: provenanceA.distilModelVersion,
+          distilPromptVersion: provenanceA.distilPromptVersion,
+        },
+        'serm1',
+      );
+      const hits = await searchPrinciples('loved first', { provider, repository: repo, limit: 5 });
+      const found = hits.find((h) => h.principle.id === 'review-admitted-1');
+      expect(found).toBeDefined();
+      expect(found!.principle.quotes).toHaveLength(1);
+      expect(found!.principle.quotes[0]!.located).toBe(true);
+    });
+  });
 });
 
 describe.skipIf(DATABASE_URL)('PostgresCanonRepository (skipped — DATABASE_URL not set)', () => {

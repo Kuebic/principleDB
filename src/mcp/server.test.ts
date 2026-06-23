@@ -6,6 +6,8 @@ import { ingestSource } from '../canon/ingest';
 import { InMemoryRepository } from '../canon/in-memory-repository';
 import type { Source } from '../canon/types';
 import type { GetQuoteInContextResponse } from './get-quote-in-context-tool';
+import type { ReviewQueueListing } from './list-review-queue-tool';
+import type { ReviewResolution } from './resolve-review-item-tool';
 import type { SearchPrinciplesResponse } from './search-principles-tool';
 import { createPrincipleDbServer } from './server';
 
@@ -155,6 +157,102 @@ describe('MCP server wiring (get_quote_in_context over JSON-RPC)', () => {
     const result = await client.callTool({
       name: 'get_quote_in_context',
       arguments: {},
+    });
+    expect(result.isError).toBe(true);
+    await client.close();
+  });
+});
+
+describe('MCP server wiring (Review queue tools — slice 6)', () => {
+  it('advertises list_review_queue and resolve_review_item in tools/list', async () => {
+    const repository = new InMemoryRepository();
+    const provider = new FakeIngestProvider(() => []);
+    const client = await wireClient({ provider, repository });
+    const { tools } = await client.listTools();
+    expect(tools.find((t) => t.name === 'list_review_queue')).toBeDefined();
+    expect(tools.find((t) => t.name === 'resolve_review_item')).toBeDefined();
+    await client.close();
+  });
+
+  it('list_review_queue returns the surfaced no-match candidate end-to-end', async () => {
+    const repository = new InMemoryRepository();
+    const provider = new FakeIngestProvider(() => [
+      { claim: 'Drift.', quote: 'Words never in the source.' },
+    ]);
+    await ingestSource(sermon, { provider, repository });
+    const client = await wireClient({ provider, repository });
+    const result = await client.callTool({
+      name: 'list_review_queue',
+      arguments: {},
+    });
+    expect(result.isError).not.toBe(true);
+    const structured = result.structuredContent as unknown as ReviewQueueListing;
+    expect(structured.total).toBe(1);
+    expect(structured.items[0]!.sourceTitle).toBe('Grace and obedience');
+    expect(structured.items[0]!.matchTier).toBe('no-match');
+    await client.close();
+  });
+
+  it('list_review_queue returns the well-shaped empty case', async () => {
+    const repository = new InMemoryRepository();
+    const provider = new FakeIngestProvider(() => []);
+    const client = await wireClient({ provider, repository });
+    const result = await client.callTool({ name: 'list_review_queue', arguments: {} });
+    expect(result.isError).not.toBe(true);
+    expect(result.structuredContent).toEqual({ items: [], total: 0 });
+    await client.close();
+  });
+
+  it('resolve_review_item correct admits when the Owner supplies a relocating quote', async () => {
+    const repository = new InMemoryRepository();
+    const provider = new FakeIngestProvider(() => [
+      { claim: 'Drift.', quote: 'Words not in source.' },
+    ]);
+    await ingestSource(sermon, { provider, repository });
+    const itemId = repository.reviewCandidates()[0]!.id;
+    const client = await wireClient({ provider, repository });
+    const result = await client.callTool({
+      name: 'resolve_review_item',
+      arguments: {
+        itemId,
+        action: 'correct',
+        quoteText: 'We are loved first.',
+        claim: 'Loved first.',
+      },
+    });
+    expect(result.isError).not.toBe(true);
+    const structured = result.structuredContent as unknown as ReviewResolution;
+    expect(structured.resolved).toBe(true);
+    if (!structured.resolved) return;
+    expect(structured.outcome).toBe('admitted');
+    await client.close();
+  });
+
+  it('resolve_review_item reject drops the candidate', async () => {
+    const repository = new InMemoryRepository();
+    const provider = new FakeIngestProvider(() => [
+      { claim: 'Drift.', quote: 'Words not in source.' },
+    ]);
+    await ingestSource(sermon, { provider, repository });
+    const itemId = repository.reviewCandidates()[0]!.id;
+    const client = await wireClient({ provider, repository });
+    const result = await client.callTool({
+      name: 'resolve_review_item',
+      arguments: { itemId, action: 'reject' },
+    });
+    expect(result.isError).not.toBe(true);
+    expect(result.structuredContent).toEqual({ resolved: true, outcome: 'rejected' });
+    expect(repository.reviewCandidates()).toHaveLength(0);
+    await client.close();
+  });
+
+  it('resolve_review_item rejects a malformed call (missing action) with isError', async () => {
+    const repository = new InMemoryRepository();
+    const provider = new FakeIngestProvider(() => []);
+    const client = await wireClient({ provider, repository });
+    const result = await client.callTool({
+      name: 'resolve_review_item',
+      arguments: { itemId: 'nope' },
     });
     expect(result.isError).toBe(true);
     await client.close();
