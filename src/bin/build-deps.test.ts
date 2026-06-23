@@ -35,13 +35,24 @@ describe('buildPrincipleDbDepsFromEnv', () => {
     );
   });
 
-  it('throws when only ANTHROPIC_API_KEY is missing', () => {
+  it('throws when both ANTHROPIC_API_KEY and CLAUDE_CODE_OAUTH_TOKEN are missing', () => {
     expect(() =>
       buildPrincipleDbDepsFromEnv({
         DATABASE_URL: fullEnv.DATABASE_URL,
         OPENAI_API_KEY: fullEnv.OPENAI_API_KEY,
       }),
     ).toThrow(/ANTHROPIC_API_KEY/);
+  });
+
+  it('accepts a CLAUDE_CODE_OAUTH_TOKEN in place of ANTHROPIC_API_KEY', () => {
+    const out = buildPrincipleDbDepsFromEnv({
+      DATABASE_URL: fullEnv.DATABASE_URL,
+      OPENAI_API_KEY: fullEnv.OPENAI_API_KEY,
+      CLAUDE_CODE_OAUTH_TOKEN: 'sk-ant-oat-test',
+    });
+    built.push(out);
+    expect(out.deps.provider).toBeInstanceOf(AnthropicIngestProvider);
+    expect(out.deps.provider.provenance.distilModel).toMatch(/^claude-/);
   });
 
   it('throws when only OPENAI_API_KEY is missing', () => {

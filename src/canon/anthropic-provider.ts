@@ -98,10 +98,26 @@ export interface AnthropicIngestProviderOptions {
   embed: EmbedFn;
   client?: Anthropic;
   apiKey?: string;
+  // OAuth bearer token alternative to `apiKey` — e.g. a Claude Code
+  // subscription token (CLAUDE_CODE_OAUTH_TOKEN). The SDK sends it as
+  // `Authorization: Bearer …` instead of `x-api-key`. Ignored when `apiKey`
+  // or an explicit `client` is supplied.
+  authToken?: string;
   model?: string;
   modelVersion?: string;
   promptVersion?: string;
   maxTokens?: number;
+}
+
+// Pick the SDK auth shape from whichever credential the caller gave. An
+// explicit `apiKey` wins; otherwise an `authToken` is used as a bearer token;
+// otherwise the SDK falls back to its own env lookup (ANTHROPIC_API_KEY).
+function anthropicClientOptions(
+  opts: AnthropicIngestProviderOptions,
+): ConstructorParameters<typeof Anthropic>[0] {
+  if (opts.apiKey) return { apiKey: opts.apiKey };
+  if (opts.authToken) return { authToken: opts.authToken };
+  return {};
 }
 
 interface DistilToolInput {
@@ -116,7 +132,7 @@ export class AnthropicIngestProvider implements IngestProvider {
   private readonly embedFn: EmbedFn;
 
   constructor(opts: AnthropicIngestProviderOptions) {
-    this.client = opts.client ?? new Anthropic(opts.apiKey ? { apiKey: opts.apiKey } : {});
+    this.client = opts.client ?? new Anthropic(anthropicClientOptions(opts));
     this.model = opts.model ?? DEFAULT_DISTIL_MODEL;
     this.maxTokens = opts.maxTokens ?? 16000;
     this.embedFn = opts.embed;

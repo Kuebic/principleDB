@@ -69,6 +69,14 @@ describe('AnthropicIngestProvider (unit)', () => {
     });
   });
 
+  it('constructs from an OAuth bearer token (CLAUDE_CODE_OAUTH_TOKEN) without an API key', () => {
+    // No stub client: this exercises the real SDK-construction branch for the
+    // authToken credential. Provenance must still stamp.
+    const provider = new AnthropicIngestProvider({ embed: noEmbed, authToken: 'sk-ant-oat-test' });
+    expect(provider.provenance.distilModel).toBe(DEFAULT_DISTIL_MODEL);
+    expect(provider.provenance.distilPromptVersion).toBe(PROMPT_VERSION);
+  });
+
   it('allows model / version / prompt overrides for a pinned-instance Canon', () => {
     const { client } = stubClient({ principles: [] });
     const provider = new AnthropicIngestProvider({

@@ -12,6 +12,7 @@
 export interface DoctorEnv {
   DATABASE_URL?: string;
   ANTHROPIC_API_KEY?: string;
+  CLAUDE_CODE_OAUTH_TOKEN?: string;
   OPENAI_API_KEY?: string;
   PRINCIPLEDB_DISTIL_MODEL?: string;
   PRINCIPLEDB_EMBED_MODEL?: string;
@@ -75,13 +76,7 @@ export async function runDoctor(env: DoctorEnv, probeDb: ProbeDb): Promise<Docto
       'Supabase pooler URL (port 6543). Settings → Database → Connection string.',
     ),
   );
-  checks.push(
-    requiredEnvCheck(
-      'ANTHROPIC_API_KEY',
-      env.ANTHROPIC_API_KEY,
-      'distil model port (ADR-0011). Get a key from https://console.anthropic.com. Default model is claude-opus-4-8; override with PRINCIPLEDB_DISTIL_MODEL.',
-    ),
-  );
+  checks.push(anthropicCredentialCheck(env));
   checks.push(
     requiredEnvCheck(
       'OPENAI_API_KEY',
@@ -143,6 +138,28 @@ function badge(status: CheckStatus): string {
     case 'fail':
       return '[fail]';
   }
+}
+
+// The distil model port (ADR-0011) is satisfied by an Anthropic API key OR a
+// Claude Code OAuth token. Keep the check name 'ANTHROPIC_API_KEY' so the
+// checklist reads consistently; the detail names whichever credential is in use.
+function anthropicCredentialCheck(env: DoctorEnv): DoctorCheck {
+  if (env.ANTHROPIC_API_KEY) {
+    return { name: 'ANTHROPIC_API_KEY', status: 'ok', detail: 'set' };
+  }
+  if (env.CLAUDE_CODE_OAUTH_TOKEN) {
+    return {
+      name: 'ANTHROPIC_API_KEY',
+      status: 'ok',
+      detail: 'set via CLAUDE_CODE_OAUTH_TOKEN (Claude Code subscription)',
+    };
+  }
+  return {
+    name: 'ANTHROPIC_API_KEY',
+    status: 'fail',
+    detail:
+      'missing — distil model port (ADR-0011). Set ANTHROPIC_API_KEY (https://console.anthropic.com) or a CLAUDE_CODE_OAUTH_TOKEN. Default model is claude-opus-4-8; override with PRINCIPLEDB_DISTIL_MODEL.',
+  };
 }
 
 function requiredEnvCheck(name: string, value: string | undefined, hint: string): DoctorCheck {

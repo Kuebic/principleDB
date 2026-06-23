@@ -11,6 +11,7 @@
     "ingest": "tsx prototype/ingest-spike.ts",
     "sandcastle": "npx tsx .sandcastle/main.ts",
     "mcp": "tsx bin/principledb-mcp.ts",
+    "ingest:text": "tsx bin/principledb-ingest.ts",
     "doctor": "tsx bin/principledb-doctor.ts",
     "db:migrate": "tsx bin/principledb-migrate.ts",
     "typecheck": "tsc --noEmit",

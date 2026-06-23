@@ -53,6 +53,17 @@ describe('runDoctor', () => {
     expect(check.detail.toLowerCase()).toMatch(/distil|model|anthropic/);
   });
 
+  it('accepts a CLAUDE_CODE_OAUTH_TOKEN in place of ANTHROPIC_API_KEY', async () => {
+    const report = await runDoctor(
+      { ...fullEnv, ANTHROPIC_API_KEY: undefined, CLAUDE_CODE_OAUTH_TOKEN: 'sk-ant-oat-x' },
+      okProbe,
+    );
+    const check = findCheck(report.checks, 'ANTHROPIC_API_KEY')!;
+    expect(check.status).toBe('ok');
+    expect(check.detail).toMatch(/CLAUDE_CODE_OAUTH_TOKEN/);
+    expect(report.ok).toBe(true);
+  });
+
   it('fails on missing OPENAI_API_KEY', async () => {
     const report = await runDoctor({ ...fullEnv, OPENAI_API_KEY: undefined }, okProbe);
     expect(report.ok).toBe(false);
