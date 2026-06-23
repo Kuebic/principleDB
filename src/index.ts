@@ -109,3 +109,13 @@ export { createPrincipleDbServer, runStdio } from './mcp/server';
 export type { ServerDeps } from './mcp/server';
 export { buildPrincipleDbDepsFromEnv } from './bin/build-deps';
 export type { BuildDepsEnv, BuiltDeps } from './bin/build-deps';
+export { formatReport, REQUIRED_TABLES, runDoctor } from './bin/doctor';
+export type {
+  CheckStatus,
+  DbProbeError,
+  DbProbeResult,
+  DoctorCheck,
+  DoctorEnv,
+  DoctorReport,
+  ProbeDb,
+} from './bin/doctor';

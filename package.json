@@ -11,6 +11,8 @@
     "ingest": "tsx prototype/ingest-spike.ts",
     "sandcastle": "npx tsx .sandcastle/main.ts",
     "mcp": "tsx bin/principledb-mcp.ts",
+    "doctor": "tsx bin/principledb-doctor.ts",
+    "db:migrate": "tsx bin/principledb-migrate.ts",
     "typecheck": "tsc --noEmit",
     "test": "vitest run --passWithNoTests",
     "db:generate": "drizzle-kit generate"

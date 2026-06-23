@@ -1,0 +1,181 @@
+// runDoctor — the self-host preflight (issue #8). Verifies env wiring + DB
+// state and emits a checklist the Owner can read top-to-bottom. The point is
+// to make a guided setup feasible: instead of "the MCP server crashed with a
+// stack trace, good luck", the Owner runs `npm run doctor` and gets a list
+// like "DATABASE_URL: ok, pgvector: missing — enable it in Supabase →
+// Database → Extensions".
+//
+// The function is pure: it takes the env object and a `ProbeDb` callback,
+// so tests can drive every failure case without a Postgres on the bench.
+// The CLI entrypoint (`bin/principledb-doctor.ts`) wires a real probe.
+
+export interface DoctorEnv {
+  DATABASE_URL?: string;
+  ANTHROPIC_API_KEY?: string;
+  OPENAI_API_KEY?: string;
+  PRINCIPLEDB_DISTIL_MODEL?: string;
+  PRINCIPLEDB_EMBED_MODEL?: string;
+  R2_ACCOUNT_ID?: string;
+  R2_ACCESS_KEY_ID?: string;
+  R2_SECRET_ACCESS_KEY?: string;
+  R2_BUCKET?: string;
+  R2_ENDPOINT?: string;
+}
+
+export type CheckStatus = 'ok' | 'warn' | 'fail';
+
+export interface DoctorCheck {
+  name: string;
+  status: CheckStatus;
+  detail: string;
+}
+
+export interface DoctorReport {
+  checks: DoctorCheck[];
+  ok: boolean;
+}
+
+export interface DbProbeResult {
+  hasPgVector: boolean;
+  tables: string[];
+}
+
+export interface DbProbeError {
+  error: string;
+}
+
+export type ProbeDb = (databaseUrl: string) => Promise<DbProbeResult | DbProbeError>;
+
+// Every table the production schema declares (see `src/db/schema.ts` and
+// `drizzle/000*_*.sql`). The doctor reports any missing table by name so the
+// Owner knows exactly which migration was skipped.
+export const REQUIRED_TABLES = [
+  'source',
+  'principle',
+  'quote',
+  'review_candidate',
+  'dedup_decision',
+] as const;
+
+export async function runDoctor(env: DoctorEnv, probeDb: ProbeDb): Promise<DoctorReport> {
+  const checks: DoctorCheck[] = [];
+
+  checks.push(
+    requiredEnvCheck(
+      'DATABASE_URL',
+      env.DATABASE_URL,
+      'Supabase pooler URL (port 6543). Settings → Database → Connection string.',
+    ),
+  );
+  checks.push(
+    requiredEnvCheck(
+      'ANTHROPIC_API_KEY',
+      env.ANTHROPIC_API_KEY,
+      `distil model port (ADR-0011). Get a key from https://console.anthropic.com. Default model is claude-opus-4-8; override with PRINCIPLEDB_DISTIL_MODEL.`,
+    ),
+  );
+  checks.push(
+    requiredEnvCheck(
+      'OPENAI_API_KEY',
+      env.OPENAI_API_KEY,
+      'embedding port (ADR-0011). Get a key from https://platform.openai.com/api-keys.',
+    ),
+  );
+  checks.push(r2Check(env));
+  checks.push(modelOverrideNote(env));
+
+  if (env.DATABASE_URL) {
+    const probe = await probeDb(env.DATABASE_URL);
+    if ('error' in probe) {
+      checks.push({
+        name: 'postgres connectivity',
+        status: 'fail',
+        detail: probe.error,
+      });
+    } else {
+      checks.push({
+        name: 'pgvector extension',
+        status: probe.hasPgVector ? 'ok' : 'fail',
+        detail: probe.hasPgVector
+          ? 'enabled'
+          : 'missing — enable in Supabase → Database → Extensions, or run `CREATE EXTENSION vector;` in the SQL editor.',
+      });
+      const missing = REQUIRED_TABLES.filter((t) => !probe.tables.includes(t));
+      checks.push({
+        name: 'schema tables',
+        status: missing.length === 0 ? 'ok' : 'fail',
+        detail:
+          missing.length === 0
+            ? `all ${REQUIRED_TABLES.length} tables present`
+            : `missing ${missing.join(', ')} — run \`npm run db:migrate\`.`,
+      });
+    }
+  }
+
+  const ok = checks.every((c) => c.status !== 'fail');
+  return { checks, ok };
+}
+
+export function formatReport(report: DoctorReport): string {
+  const lines: string[] = [];
+  for (const c of report.checks) {
+    lines.push(`  ${badge(c.status)}  ${c.name} — ${c.detail}`);
+  }
+  lines.push('');
+  lines.push(report.ok ? 'doctor: OK' : 'doctor: FAILED — see entries marked fail above.');
+  return lines.join('\n');
+}
+
+function badge(status: CheckStatus): string {
+  switch (status) {
+    case 'ok':
+      return '[ok]  ';
+    case 'warn':
+      return '[warn]';
+    case 'fail':
+      return '[fail]';
+  }
+}
+
+function requiredEnvCheck(name: string, value: string | undefined, hint: string): DoctorCheck {
+  if (value && value.length > 0) {
+    return { name, status: 'ok', detail: 'set' };
+  }
+  return { name, status: 'fail', detail: `missing — ${hint}` };
+}
+
+function r2Check(env: DoctorEnv): DoctorCheck {
+  const present = [
+    env.R2_ACCOUNT_ID,
+    env.R2_ACCESS_KEY_ID,
+    env.R2_SECRET_ACCESS_KEY,
+    env.R2_BUCKET,
+    env.R2_ENDPOINT,
+  ].filter((v): v is string => !!v && v.length > 0);
+  if (present.length === 5) {
+    return { name: 'R2 (blob lake)', status: 'ok', detail: 'all five vars set' };
+  }
+  if (present.length === 0) {
+    return {
+      name: 'R2 (blob lake)',
+      status: 'warn',
+      detail:
+        'unset — the MCP server still boots, but PDF ingest will fail. Create a Cloudflare R2 bucket and set R2_ACCOUNT_ID, R2_ACCESS_KEY_ID, R2_SECRET_ACCESS_KEY, R2_BUCKET, R2_ENDPOINT.',
+    };
+  }
+  return {
+    name: 'R2 (blob lake)',
+    status: 'warn',
+    detail: 'partially set — fill in all of R2_ACCOUNT_ID, R2_ACCESS_KEY_ID, R2_SECRET_ACCESS_KEY, R2_BUCKET, R2_ENDPOINT before ingesting PDFs.',
+  };
+}
+
+function modelOverrideNote(env: DoctorEnv): DoctorCheck {
+  const distil = env.PRINCIPLEDB_DISTIL_MODEL ?? '(default: claude-opus-4-8)';
+  const embed = env.PRINCIPLEDB_EMBED_MODEL ?? '(default: text-embedding-3-small)';
+  return {
+    name: 'model configuration',
+    status: 'ok',
+    detail: `distil = ${distil}; embed = ${embed}.`,
+  };
+}
