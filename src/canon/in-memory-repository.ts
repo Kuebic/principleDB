@@ -66,12 +66,13 @@ export class InMemoryRepository implements CanonRepository {
   }
 
   async getQuoteById(quoteId: string): Promise<QuoteWithPrinciple | null> {
-    for (const homes of this.principlesBySlot.values()) {
-      for (const { principle } of homes) {
-        for (const quote of principle.quotes) {
-          if (quote.id === quoteId) {
-            return { quote, principleClaim: principle.claim };
-          }
+    // Walks both own-slot and dedup-attached quotes — Postgres stores both
+    // in the same `quote` table and finds them in one lookup; in-memory
+    // mirrors that by joining via `allPrinciplesWithAttachedQuotes()`.
+    for (const { principle } of this.allPrinciplesWithAttachedQuotes()) {
+      for (const quote of principle.quotes) {
+        if (quote.id === quoteId) {
+          return { quote, principleClaim: principle.claim };
         }
       }
     }

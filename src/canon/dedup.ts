@@ -12,8 +12,8 @@
 // The rationale on every LLM consultation is persisted so the Owner can
 // inspect dedup decisions (PRD AC #3).
 
-import { fnv1a32 } from './hash';
-import type { CanonRepository, IngestProvider } from './ports';
+import { provenanceTag } from './admission';
+import type { CanonRepository, IngestProvider, SearchHit } from './ports';
 import type {
   DedupDecision,
   DistilProvenance,
@@ -44,11 +44,6 @@ export interface DedupResult {
   decisions: DedupDecision[];
 }
 
-function provenanceTag(p: DistilProvenance): string {
-  const key = `${p.distilModel}|${p.distilModelVersion}|${p.distilPromptVersion}`;
-  return fnv1a32(key).toString(16).padStart(8, '0');
-}
-
 export async function dedup(
   principles: Principle[],
   source: Source,
@@ -63,6 +58,24 @@ export async function dedup(
   const attachedQuotes: LocatedQuote[] = [];
   const decisions: DedupDecision[] = [];
   let decisionIdx = 0;
+
+  const buildDecision = (
+    candidate: SearchHit,
+    candidateClaim: string,
+    verdict: DedupDecision['verdict'],
+    rationale: string,
+  ): DedupDecision => ({
+    id: `${source.id}#${tag}#d${decisionIdx++}`,
+    sourceId: source.id,
+    candidateClaim,
+    existingPrincipleId: candidate.principle.id,
+    verdict,
+    rationale,
+    similarityScore: candidate.score,
+    distilModel: provenance.distilModel,
+    distilModelVersion: provenance.distilModelVersion,
+    distilPromptVersion: provenance.distilPromptVersion,
+  });
 
   for (const [idx, principle] of principles.entries()) {
     const candidates = await ctx.repository.findSimilarPrinciplesExcludingSource(
@@ -83,46 +96,24 @@ export async function dedup(
         principle.claim,
         candidate.principle.claim,
       );
-      if (verdict.same) {
-        // Attach this source's Quote to the existing Principle. The Quote ID
-        // is provenance-scoped to this (sourceId, provenance, idx) so a
-        // re-ingest under the same provenance writes the same row again
-        // (idempotent), and a re-ingest under a different provenance is
-        // additive (distinct ID).
-        const original = principle.quotes[0]!;
-        const attached: LocatedQuote = {
-          ...original,
-          id: `${source.id}#${tag}#aq${idx}`,
-          principleId: candidate.principle.id,
-        };
-        attachedQuotes.push(attached);
-        decisions.push({
-          id: `${source.id}#${tag}#d${decisionIdx++}`,
-          sourceId: source.id,
-          candidateClaim: principle.claim,
-          existingPrincipleId: candidate.principle.id,
-          verdict: 'merged',
-          rationale: verdict.rationale,
-          similarityScore: candidate.score,
-          distilModel: provenance.distilModel,
-          distilModelVersion: provenance.distilModelVersion,
-          distilPromptVersion: provenance.distilPromptVersion,
-        });
-        merged = true;
-        break;
+      if (!verdict.same) {
+        decisions.push(buildDecision(candidate, principle.claim, 'kept-separate', verdict.rationale));
+        continue;
       }
-      decisions.push({
-        id: `${source.id}#${tag}#d${decisionIdx++}`,
-        sourceId: source.id,
-        candidateClaim: principle.claim,
-        existingPrincipleId: candidate.principle.id,
-        verdict: 'kept-separate',
-        rationale: verdict.rationale,
-        similarityScore: candidate.score,
-        distilModel: provenance.distilModel,
-        distilModelVersion: provenance.distilModelVersion,
-        distilPromptVersion: provenance.distilPromptVersion,
+      // Attach this source's Quote to the existing Principle. The Quote ID
+      // is provenance-scoped to (sourceId, provenance, idx) so a re-ingest
+      // under the same provenance writes the same row again (idempotent),
+      // and a re-ingest under a different provenance is additive (distinct
+      // ID).
+      const original = principle.quotes[0]!;
+      attachedQuotes.push({
+        ...original,
+        id: `${source.id}#${tag}#aq${idx}`,
+        principleId: candidate.principle.id,
       });
+      decisions.push(buildDecision(candidate, principle.claim, 'merged', verdict.rationale));
+      merged = true;
+      break;
     }
 
     if (!merged) freshPrinciples.push(principle);
