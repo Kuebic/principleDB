@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { admit } from './admission';
+import { admit, provenanceTag } from './admission';
 import { alnumize, normalize } from './normalize';
 import { relocate } from './relocate';
 import type { DistilProvenance, Source } from './types';
@@ -169,15 +169,30 @@ describe('admit', () => {
     expect(r.reviewCandidates[0]!.matchTier).toBe('no-match');
   });
 
-  it('splits a mixed batch deterministically and IDs come from (sourceId, index)', () => {
+  it('splits a mixed batch deterministically; IDs come from (sourceId, provenance, index)', () => {
     const items = [
       { claim: 'Grace precedes obedience.', quote: 'Grace precedes obedience.' },
       { claim: 'Invented.', quote: 'Faith comes from nowhere.' },
       { claim: 'Loved first.', quote: 'We are loved before we obey.' },
     ];
     const r = admit(sermon, items, provenance);
-    expect(r.principles.map((p) => p.id)).toEqual(['s1#p0', 's1#p2']);
-    expect(r.reviewCandidates[0]!.id).toBe('s1#r1');
+    const tag = provenanceTag(provenance);
+    expect(r.principles.map((p) => p.id)).toEqual([`s1#${tag}#p0`, `s1#${tag}#p2`]);
+    expect(r.reviewCandidates[0]!.id).toBe(`s1#${tag}#r1`);
+  });
+
+  it('different provenance yields different IDs so additivity does not collide on the PK', () => {
+    const items = [
+      { claim: 'Grace precedes obedience.', quote: 'Grace precedes obedience.' },
+    ];
+    const provB: DistilProvenance = {
+      distilModel: 'claude-sonnet-4-6',
+      distilModelVersion: '2026-06-19',
+      distilPromptVersion: 'v1',
+    };
+    const a = admit(sermon, items, provenance).principles[0]!;
+    const b = admit(sermon, items, provB).principles[0]!;
+    expect(a.id).not.toBe(b.id);
   });
 
   it('links each Principle to its own Quote by principleId', () => {

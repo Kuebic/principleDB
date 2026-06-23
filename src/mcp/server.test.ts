@@ -61,7 +61,7 @@ describe('MCP server wiring (search_principles over JSON-RPC)', () => {
     const structured = result.structuredContent as unknown as SearchPrinciplesResponse;
     expect(structured.hits).toHaveLength(1);
     const hit = structured.hits[0]!;
-    expect(hit.principleId).toBe('serm1#p0');
+    expect(hit.principleId).toMatch(/^serm1#[0-9a-f]{8}#p0$/);
     expect(hit.claim).toBe('Grace precedes obedience.');
     expect(hit.quote.text).toBe('Grace precedes obedience.');
     expect(hit.source.title).toBe('Grace and obedience');

@@ -27,7 +27,7 @@ describe('searchPrinciplesTool', () => {
     const resp = await searchPrinciplesTool({ query: 'grace and obedience' }, { provider, repository });
     expect(resp.hits).toHaveLength(1);
     const hit = resp.hits[0]!;
-    expect(hit.principleId).toBe('serm1#p0');
+    expect(hit.principleId).toMatch(/^serm1#[0-9a-f]{8}#p0$/);
     expect(hit.claim).toBe('Grace precedes obedience.');
     expect(hit.quote.text).toBe('Grace precedes obedience.');
     expect(hit.source.title).toBe('Grace and obedience');

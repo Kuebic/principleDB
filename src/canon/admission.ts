@@ -3,8 +3,10 @@
 //
 // Each distilled {claim, quote} is routed per-item: located → Principle, no-match →
 // ReviewCandidate. Provenance (model + version + prompt version) is stamped on every
-// Principle and Quote (ADR-0008), and IDs are deterministic from (sourceId, index)
-// so re-ingest under a pinned (model, prompt) is reproducible.
+// Principle and Quote (ADR-0008), and IDs are deterministic from
+// (sourceId, provenance, index): same (model, prompt) re-ingest reproduces the same
+// IDs (idempotent), while a different model occupies a distinct ID slot so a
+// model-mixed Canon stays additive instead of colliding on the principle PK.
 
 import { relocate } from './relocate';
 import type {
@@ -15,6 +17,16 @@ import type {
   ReviewCandidate,
   Source,
 } from './types';
+
+export function provenanceTag(p: DistilProvenance): string {
+  const s = `${p.distilModel}|${p.distilModelVersion}|${p.distilPromptVersion}`;
+  let h = 0x811c9dc5;
+  for (let i = 0; i < s.length; i++) {
+    h ^= s.charCodeAt(i);
+    h = Math.imul(h, 0x01000193) >>> 0;
+  }
+  return h.toString(16).padStart(8, '0');
+}
 
 export interface AdmissionResult {
   principles: Principle[];
@@ -28,12 +40,13 @@ export function admit(
 ): AdmissionResult {
   const principles: Principle[] = [];
   const reviewCandidates: ReviewCandidate[] = [];
+  const tag = provenanceTag(provenance);
 
   for (const [idx, item] of items.entries()) {
     const result = relocate(source.text, item.quote);
     if (!result.located) {
       reviewCandidates.push({
-        id: `${source.id}#r${idx}`,
+        id: `${source.id}#${tag}#r${idx}`,
         sourceId: source.id,
         claim: item.claim,
         quoteText: item.quote,
@@ -42,9 +55,9 @@ export function admit(
       });
       continue;
     }
-    const principleId = `${source.id}#p${idx}`;
+    const principleId = `${source.id}#${tag}#p${idx}`;
     const quote: LocatedQuote = {
-      id: `${source.id}#q${idx}`,
+      id: `${source.id}#${tag}#q${idx}`,
       principleId,
       sourceId: source.id,
       span: result.span,
