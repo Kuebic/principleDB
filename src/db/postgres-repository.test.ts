@@ -299,6 +299,60 @@ describe.skipIf(!DATABASE_URL)('PostgresCanonRepository (integration)', () => {
     expect(rows[0].dedup_state).toBe('pending');
   });
 
+  describe('live relatedness (issue #7)', () => {
+    const graceSermon: Source = {
+      id: 'rel-serm1',
+      title: 'Grace and obedience',
+      author: 'Pastor X',
+      kind: 'sermon',
+      date: '2026-05-15',
+      text: 'Grace precedes obedience. We are loved first. Obedience flows from being loved.',
+      r2Key: null,
+      structureMap: { kind: 'none' },
+    };
+    const unrelatedSermon: Source = {
+      id: 'rel-serm2',
+      title: 'The empty seat',
+      author: 'Pastor Y',
+      kind: 'sermon',
+      date: '2026-05-22',
+      text: 'The empty seat is the assignment. Hospitality begins where comfort ends.',
+      r2Key: null,
+      structureMap: { kind: 'none' },
+    };
+
+    it('surfaces a cluster sibling for a seed and excludes the seed itself', async () => {
+      const provider = new FakeIngestProvider(
+        () => [
+          { claim: 'Grace precedes obedience.', quote: 'Grace precedes obedience.' },
+          { claim: 'Obedience flows from grace.', quote: 'Obedience flows from being loved.' },
+          { claim: 'The empty seat is the assignment.', quote: 'The empty seat is the assignment.' },
+        ],
+        provenanceA,
+        EMBEDDING_DIM,
+      );
+      await ingestSource(graceSermon, { provider, repository: repo });
+      await ingestSource(unrelatedSermon, { provider, repository: repo });
+
+      const hits = await searchPrinciples('grace precedes obedience', {
+        provider,
+        repository: repo,
+        limit: 10,
+      });
+      const seed = hits.find((h) => h.principle.claim === 'Grace precedes obedience.')!;
+
+      const related = await repo.findRelatedPrinciples(seed.principle.id, 0.3, 5);
+      expect(related.length).toBeGreaterThan(0);
+      expect(related[0]!.principle.claim).toBe('Obedience flows from grace.');
+      expect(related.find((h) => h.principle.id === seed.principle.id)).toBeUndefined();
+    });
+
+    it('returns an empty array for an unknown seed id', async () => {
+      const related = await repo.findRelatedPrinciples('does-not-exist', 0.3, 5);
+      expect(related).toEqual([]);
+    });
+  });
+
   describe('Review queue port (slice 6)', () => {
     it('listReviewCandidates honours limit + offset and countReviewCandidates returns the total', async () => {
       await repo.upsertSource(sermon);

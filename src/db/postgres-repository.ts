@@ -257,6 +257,49 @@ export class PostgresCanonRepository implements CanonRepository {
     return this.hydrateSearchHits(rows);
   }
 
+  async findRelatedPrinciples(
+    principleId: string,
+    threshold: number,
+    limit: number,
+  ): Promise<SearchHit[]> {
+    // Look up the seed embedding directly. A correlated subquery would push
+    // this into the same plan, but the lookup is cheap (PK) and keeping it as
+    // a separate read makes the "seed missing ⇒ []" branch explicit.
+    const seedRows = await this.db
+      .select({ embedding: schema.principle.embedding })
+      .from(schema.principle)
+      .where(eq(schema.principle.id, principleId))
+      .limit(1);
+    const seed = seedRows[0];
+    if (!seed) return [];
+
+    const distance = pgCosineDistance(schema.principle.embedding, seed.embedding);
+    const score = sql<number>`1 - (${distance})`;
+    const rows = await this.db
+      .select({
+        id: schema.principle.id,
+        claim: schema.principle.claim,
+        embedding: schema.principle.embedding,
+        distilModel: schema.principle.distilModel,
+        distilModelVersion: schema.principle.distilModelVersion,
+        distilPromptVersion: schema.principle.distilPromptVersion,
+        score,
+      })
+      .from(schema.principle)
+      .where(
+        and(
+          ne(schema.principle.id, principleId),
+          sql`1 - (${distance}) >= ${threshold}`,
+        ),
+      )
+      .orderBy(distance)
+      .limit(limit);
+
+    if (rows.length === 0) return [];
+
+    return this.hydrateSearchHits(rows);
+  }
+
   async addReviewCandidates(candidates: ReviewCandidate[]): Promise<void> {
     if (candidates.length === 0) return;
     await this.db.insert(schema.reviewCandidate).values(

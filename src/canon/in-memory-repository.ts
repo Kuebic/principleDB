@@ -153,6 +153,25 @@ export class InMemoryRepository implements CanonRepository {
     return hits.slice(0, limit);
   }
 
+  async findRelatedPrinciples(
+    principleId: string,
+    threshold: number,
+    limit: number,
+  ): Promise<SearchHit[]> {
+    const all = this.allPrinciplesWithAttachedQuotes();
+    const seed = all.find(({ principle }) => principle.id === principleId);
+    if (!seed) return [];
+    const hits = all
+      .filter(({ principle }) => principle.id !== principleId)
+      .map(({ principle }) => ({
+        principle,
+        score: cosine(seed.principle.embedding, principle.embedding),
+      }))
+      .filter((h) => h.score >= threshold);
+    hits.sort((a, b) => b.score - a.score);
+    return hits.slice(0, limit);
+  }
+
   reviewCandidates(): ReadonlyArray<ReviewCandidate> {
     return this.review;
   }

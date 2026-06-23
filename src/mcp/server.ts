@@ -11,6 +11,7 @@ import { z } from 'zod';
 import type { CanonRepository, IngestProvider } from '../canon/ports';
 import { getQuoteInContextTool } from './get-quote-in-context-tool';
 import { listReviewQueueTool } from './list-review-queue-tool';
+import { relatedPrinciplesTool } from './related-principles-tool';
 import { resolveReviewItemTool } from './resolve-review-item-tool';
 import { searchPrinciplesTool } from './search-principles-tool';
 
@@ -138,6 +139,34 @@ export function createPrincipleDbServer(deps: ServerDeps): McpServer {
         { itemId, action, quoteText, claim },
         deps,
       );
+      return {
+        content: [{ type: 'text', text: JSON.stringify(response) }],
+        structuredContent: response as unknown as Record<string, unknown>,
+      };
+    },
+  );
+
+  server.registerTool(
+    'related_principles',
+    {
+      description:
+        'Stack live-related Principles around a seed Principle. Relatedness is computed at query time over pgvector (ADR-0006: nothing stored, no graph), so the AI can surface siblings of a hit without a stale or hand-maintained graph. Returns the same citation-ready shape as search_principles (Source title/author/kind + the Source’s own words at the snapped span + a derived label). Empty case is { related: [] }.',
+      inputSchema: {
+        principleId: z
+          .string()
+          .min(1)
+          .describe('The seed Principle id (as returned from search_principles).'),
+        limit: z
+          .number()
+          .int()
+          .min(1)
+          .max(50)
+          .optional()
+          .describe('Max related Principles to return. Defaults to 5.'),
+      },
+    },
+    async ({ principleId, limit }) => {
+      const response = await relatedPrinciplesTool({ principleId, limit }, deps);
       return {
         content: [{ type: 'text', text: JSON.stringify(response) }],
         structuredContent: response as unknown as Record<string, unknown>,

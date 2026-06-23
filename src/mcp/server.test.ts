@@ -7,6 +7,7 @@ import { InMemoryRepository } from '../canon/in-memory-repository';
 import type { Source } from '../canon/types';
 import type { GetQuoteInContextResponse } from './get-quote-in-context-tool';
 import type { ReviewQueueListing } from './list-review-queue-tool';
+import type { RelatedPrinciplesResponse } from './related-principles-tool';
 import type { ReviewResolution } from './resolve-review-item-tool';
 import type { SearchPrinciplesResponse } from './search-principles-tool';
 import { createPrincipleDbServer } from './server';
@@ -253,6 +254,68 @@ describe('MCP server wiring (Review queue tools — slice 6)', () => {
     const result = await client.callTool({
       name: 'resolve_review_item',
       arguments: { itemId: 'nope' },
+    });
+    expect(result.isError).toBe(true);
+    await client.close();
+  });
+});
+
+describe('MCP server wiring (related_principles over JSON-RPC)', () => {
+  it('advertises related_principles in tools/list', async () => {
+    const repository = new InMemoryRepository();
+    const provider = new FakeIngestProvider(() => []);
+    const client = await wireClient({ provider, repository });
+    const { tools } = await client.listTools();
+    const tool = tools.find((t) => t.name === 'related_principles');
+    expect(tool).toBeDefined();
+    expect(tool!.description).toMatch(/related/i);
+    expect(tool!.inputSchema.type).toBe('object');
+    expect((tool!.inputSchema.properties as Record<string, unknown>).principleId).toBeDefined();
+    await client.close();
+  });
+
+  it('tools/call returns the cluster sibling for a seed principle (golden, end-to-end)', async () => {
+    const repository = new InMemoryRepository();
+    const provider = new FakeIngestProvider(() => [
+      { claim: 'Grace precedes obedience.', quote: 'Grace precedes obedience.' },
+      { claim: 'Obedience flows from grace.', quote: 'We are loved first.' },
+    ]);
+    await ingestSource(sermon, { provider, repository });
+    const hits = await repository.searchByEmbedding((await provider.embed(['grace']))[0]!, 1);
+    const seedId = hits[0]!.principle.id;
+
+    const client = await wireClient({ provider, repository });
+    const result = await client.callTool({
+      name: 'related_principles',
+      arguments: { principleId: seedId },
+    });
+    expect(result.isError).not.toBe(true);
+    const structured = result.structuredContent as unknown as RelatedPrinciplesResponse;
+    expect(structured.related.length).toBeGreaterThan(0);
+    expect(structured.related[0]!.claim).toBe('Obedience flows from grace.');
+    await client.close();
+  });
+
+  it('returns a well-shaped empty case ({ related: [] }) for an unknown principle id', async () => {
+    const repository = new InMemoryRepository();
+    const provider = new FakeIngestProvider(() => []);
+    const client = await wireClient({ provider, repository });
+    const result = await client.callTool({
+      name: 'related_principles',
+      arguments: { principleId: 'does-not-exist' },
+    });
+    expect(result.isError).not.toBe(true);
+    expect(result.structuredContent).toEqual({ related: [] });
+    await client.close();
+  });
+
+  it('rejects a malformed call (missing principleId) with isError', async () => {
+    const repository = new InMemoryRepository();
+    const provider = new FakeIngestProvider(() => []);
+    const client = await wireClient({ provider, repository });
+    const result = await client.callTool({
+      name: 'related_principles',
+      arguments: {},
     });
     expect(result.isError).toBe(true);
     await client.close();

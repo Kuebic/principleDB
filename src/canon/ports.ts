@@ -107,4 +107,13 @@ export interface CanonRepository {
     threshold: number,
     limit: number,
   ): Promise<SearchHit[]>;
+  // Live relatedness (issue #7, PRD user story 32, ADR-0006). Top-`limit`
+  // Principles whose cosine to `principleId`'s embedding is at or above
+  // `threshold`, EXCLUDING the seed itself. Computed on read — nothing
+  // stored, no graph (ADR-0006). Unknown seed id ⇒ empty array.
+  findRelatedPrinciples(
+    principleId: string,
+    threshold: number,
+    limit: number,
+  ): Promise<SearchHit[]>;
 }
