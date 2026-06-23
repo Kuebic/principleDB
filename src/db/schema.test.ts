@@ -8,7 +8,7 @@
 // pgvector embedding column carries the EMBEDDING_DIM dimension so a future
 // dimension change is a one-line migration, not a silent drift.
 
-import { getTableConfig } from 'drizzle-orm/pg-core';
+import { getTableConfig, type PgTable } from 'drizzle-orm/pg-core';
 import { describe, expect, it } from 'vitest';
 import {
   EMBEDDING_DIM,
@@ -18,13 +18,13 @@ import {
   source,
 } from './schema';
 
-function column(table: Parameters<typeof getTableConfig>[0], name: string) {
+function column(table: PgTable, name: string) {
   const col = getTableConfig(table).columns.find((c) => c.name === name);
   if (!col) throw new Error(`column ${name} not found on table ${getTableConfig(table).name}`);
   return col;
 }
 
-function fkTargets(table: Parameters<typeof getTableConfig>[0]): Array<{
+function fkTargets(table: PgTable): Array<{
   column: string;
   refTable: string;
   refColumn: string;
@@ -33,7 +33,7 @@ function fkTargets(table: Parameters<typeof getTableConfig>[0]): Array<{
     const ref = fk.reference();
     return {
       column: ref.columns[0]!.name,
-      refTable: ref.foreignTable[Symbol.for('drizzle:Name') as never] as string,
+      refTable: getTableConfig(ref.foreignTable).name,
       refColumn: ref.foreignColumns[0]!.name,
     };
   });
