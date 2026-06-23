@@ -11,7 +11,7 @@
 import { admit } from './admission';
 import { dedup } from './dedup';
 import type { CanonRepository, IngestProvider } from './ports';
-import type { Source } from './types';
+import type { DistilledItem, Source } from './types';
 
 export interface IngestResult {
   admitted: number;
@@ -23,10 +23,23 @@ export async function ingestSource(
   source: Source,
   deps: { provider: IngestProvider; repository: CanonRepository },
 ): Promise<IngestResult> {
+  const items = await deps.provider.distil({ title: source.title, text: source.text });
+  return ingestDistilledItems(source, items, deps);
+}
+
+// Tail of the pipeline shared with multi-chunk ingest (issue #9). The
+// orchestrator calls `provider.distil` per Marker section chunk and hands the
+// merged item list here, so admission (locatability against the unified
+// Source.text), embedding, dedup and persistence behave identically regardless
+// of how the distillation was sliced upstream.
+export async function ingestDistilledItems(
+  source: Source,
+  items: DistilledItem[],
+  deps: { provider: IngestProvider; repository: CanonRepository },
+): Promise<IngestResult> {
   const { provider, repository } = deps;
   await repository.upsertSource(source);
 
-  const items = await provider.distil({ title: source.title, text: source.text });
   const { principles, reviewCandidates } = admit(source, items, provider.provenance);
 
   if (principles.length > 0) {
