@@ -9,6 +9,8 @@
 // Returned vectors are L2-normalized so cosine search degrades to dot product
 // — pgvector's <=> operator and the in-memory cosine path both rely on that.
 
+import { l2Normalize } from './vector';
+
 const DEFAULT_MODEL = 'text-embedding-3-small';
 const DEFAULT_DIM = 1536;
 const DEFAULT_BASE_URL = 'https://api.openai.com/v1';
@@ -22,14 +24,6 @@ export interface OpenAIEmbedderOptions {
 }
 
 export type EmbedFn = (claims: string[]) => Promise<number[][]>;
-
-function l2Normalize(vec: number[]): number[] {
-  let sum = 0;
-  for (const v of vec) sum += v * v;
-  const norm = Math.sqrt(sum);
-  if (norm === 0) return vec;
-  return vec.map((v) => v / norm);
-}
 
 export function createOpenAIEmbedder(opts: OpenAIEmbedderOptions = {}): EmbedFn {
   const apiKey = opts.apiKey ?? process.env.OPENAI_API_KEY;

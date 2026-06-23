@@ -3,6 +3,7 @@
 // run end-to-end without an API key.
 
 import { fnv1a32 } from './hash';
+import { l2Normalize } from './vector';
 import type { DistilProvenance, DistilledItem } from './types';
 import type { DistilInput, IngestProvider } from './ports';
 
@@ -19,11 +20,7 @@ function bagOfWordsEmbedding(text: string, dim: number): number[] {
     const h = fnv1a32(tok) % dim;
     vec[h] = vec[h]! + 1;
   }
-  let norm = 0;
-  for (const v of vec) norm += v * v;
-  norm = Math.sqrt(norm);
-  if (norm === 0) return vec;
-  return vec.map((v) => v / norm);
+  return l2Normalize(vec);
 }
 
 export class FakeIngestProvider implements IngestProvider {
