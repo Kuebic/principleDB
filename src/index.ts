@@ -13,6 +13,27 @@ export {
 export type { AnthropicIngestProviderOptions } from './canon/anthropic-provider';
 export { deriveLabel } from './canon/derive-label';
 export { FakeIngestProvider } from './canon/fake-provider';
+export type { BlobStore } from './canon/blob-store';
+export { InMemoryBlobStore } from './canon/blob-store';
+export {
+  FakePdfExtractor,
+  parseMarkerOutput,
+} from './canon/marker';
+export type {
+  ExtractionTarget,
+  ExtractOptions,
+  MarkerArtifact,
+  ParsedMarkerOutput,
+  PdfExtractor,
+} from './canon/marker';
+export { MarkerCliExtractor } from './canon/marker-cli';
+export type { MarkerCliOptions, MarkerProcessRunner } from './canon/marker-cli';
+export { ingestPdfSource, r2KeyForPdfSource } from './canon/pdf-ingest';
+export type {
+  IngestPdfDeps,
+  IngestPdfOptions,
+  PdfSourceMeta,
+} from './canon/pdf-ingest';
 export { createOpenAIEmbedder } from './canon/openai-embedder';
 export type { EmbedFn, OpenAIEmbedderOptions } from './canon/openai-embedder';
 export { InMemoryRepository } from './canon/in-memory-repository';
