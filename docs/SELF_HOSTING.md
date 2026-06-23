@@ -13,7 +13,7 @@ provider accounts and console access.
   schema applied.
 - A Cloudflare R2 bucket holding original Sources (PDFs etc.) — empty until
   slice 3 lands the ingest pipeline that writes to it.
-- An `.sandcastle/.env` file holding all four secrets.
+- An `.sandcastle/.env` file holding the provider secrets (Postgres, Anthropic, OpenAI, R2).
 - An MCP server (`npm run mcp` or `principledb-mcp`) reachable over stdio JSON-RPC
   from your AI client.
 
