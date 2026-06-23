@@ -3,10 +3,14 @@
   "private": true,
   "type": "module",
   "description": "THROWAWAY core-spine prototype for principleDB (see prototype/). Safe to delete once the question is answered.",
+  "bin": {
+    "principledb-mcp": "bin/principledb-mcp.ts"
+  },
   "scripts": {
     "prototype": "tsx prototype/spine.ts",
     "ingest": "tsx prototype/ingest-spike.ts",
     "sandcastle": "npx tsx .sandcastle/main.ts",
+    "mcp": "tsx bin/principledb-mcp.ts",
     "typecheck": "tsc --noEmit",
     "test": "vitest run --passWithNoTests",
     "db:generate": "drizzle-kit generate"

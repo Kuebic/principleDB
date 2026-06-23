@@ -13,4 +13,5 @@ See [WORKFLOW.md](./WORKFLOW.md) for the full pipeline and [CONTEXT.md](./CONTEX
 
 ## Getting started
 
-> TODO: fill in once the stack is chosen (step 4 of the workflow).
+To stand up a fresh instance (Supabase + R2 + secrets, then connect to your AI
+client), follow [docs/SELF_HOSTING.md](./docs/SELF_HOSTING.md).

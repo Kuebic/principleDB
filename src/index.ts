@@ -47,3 +47,5 @@ export type {
 } from './mcp/search-principles-tool';
 export { createPrincipleDbServer, runStdio } from './mcp/server';
 export type { ServerDeps } from './mcp/server';
+export { buildPrincipleDbDepsFromEnv } from './bin/build-deps';
+export type { BuildDepsEnv, BuiltDeps } from './bin/build-deps';
