@@ -10,7 +10,7 @@
 
 import { deriveLabel } from './derive-label';
 import type { CanonRepository } from './ports';
-import type { Span, SourceKind } from './types';
+import type { LocatedQuote, Span, SourceKind } from './types';
 
 const DEFAULT_CONTEXT_CHARS = 280;
 
@@ -38,7 +38,7 @@ export interface QuoteInContextHit {
     text: string;
     contextBefore: string;
     contextAfter: string;
-    matchTier: 'exact' | 'normalized' | 'alnum';
+    matchTier: LocatedQuote['matchTier'];
   };
 }
 

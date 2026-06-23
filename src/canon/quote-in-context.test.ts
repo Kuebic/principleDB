@@ -27,10 +27,8 @@ async function seed(quote: string): Promise<{
   const repository = new InMemoryRepository();
   const provider = new FakeIngestProvider(() => [{ claim: 'Grace precedes obedience.', quote }]);
   await ingestSource(sermon, { provider, repository });
-  const principle = (await repository.searchByEmbedding(await provider
-    .embed(['anything'])
-    .then((e) => e[0]!), 10))[0]!.principle;
-  return { repository, quoteId: principle.quotes[0]!.id };
+  const hits = await repository.searchByEmbedding((await provider.embed(['anything']))[0]!, 10);
+  return { repository, quoteId: hits[0]!.principle.quotes[0]!.id };
 }
 
 describe('getQuoteInContext', () => {
