@@ -3,8 +3,16 @@
 
 export { admit } from './canon/admission';
 export type { AdmissionResult } from './canon/admission';
+export {
+  AnthropicIngestProvider,
+  DEFAULT_DISTIL_MODEL,
+  PROMPT_VERSION,
+} from './canon/anthropic-provider';
+export type { AnthropicIngestProviderOptions } from './canon/anthropic-provider';
 export { deriveLabel } from './canon/derive-label';
 export { FakeIngestProvider } from './canon/fake-provider';
+export { createOpenAIEmbedder } from './canon/openai-embedder';
+export type { EmbedFn, OpenAIEmbedderOptions } from './canon/openai-embedder';
 export { InMemoryRepository } from './canon/in-memory-repository';
 export { ingestSource } from './canon/ingest';
 export type { IngestResult } from './canon/ingest';
