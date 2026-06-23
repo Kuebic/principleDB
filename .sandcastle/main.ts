@@ -128,8 +128,19 @@ for (let iteration = 1; iteration <= MAX_ITERATIONS; iteration++) {
   if (reviewed) {
     console.log(`\nMerging ${branch} into main...`);
     execSync(`git merge --ff-only ${branch}`, { stdio: "inherit" });
-    execSync(`git branch -D ${branch}`, { stdio: "inherit" });
-    console.log(`Merged ${branch} into main and deleted the temp branch.`);
+    // Branch deletion can fail if the sandbox's worktree hasn't been torn down
+    // yet (a race in sandbox.close()): `git branch -D` refuses to delete a
+    // branch still checked out by a worktree. Prune stale worktrees first, and
+    // never let a cleanup hiccup kill the loop — the work is already merged.
+    try {
+      execSync("git worktree prune", { stdio: "inherit" });
+      execSync(`git branch -D ${branch}`, { stdio: "inherit" });
+      console.log(`Merged ${branch} into main and deleted the temp branch.`);
+    } catch (err) {
+      console.warn(
+        `Merged ${branch} into main; temp-branch cleanup failed (safe to ignore, already merged): ${err.message}`,
+      );
+    }
   }
 }
 
