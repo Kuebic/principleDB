@@ -8,10 +8,9 @@
 // `{ related: [] }` so the AI client doesn't have to special-case "no
 // neighbours" or "unknown id".
 
-import { deriveLabel } from '../canon/derive-label';
 import type { CanonRepository } from '../canon/ports';
 import { relatedPrinciples } from '../canon/related';
-import type { SearchHitResponse } from './search-principles-tool';
+import { toSearchHitResponses, type SearchHitResponse } from './search-principles-tool';
 
 export interface RelatedPrinciplesRequest {
   principleId: string;
@@ -30,29 +29,5 @@ export async function relatedPrinciplesTool(
     repository: deps.repository,
     limit: req.limit,
   });
-
-  const related: SearchHitResponse[] = [];
-  for (const hit of hits) {
-    const quote = hit.principle.quotes[0];
-    if (!quote) continue;
-    const source = await deps.repository.getSource(quote.sourceId);
-    if (!source) continue;
-    related.push({
-      principleId: hit.principle.id,
-      claim: hit.principle.claim,
-      score: hit.score,
-      source: {
-        id: source.id,
-        title: source.title,
-        author: source.author,
-        kind: source.kind,
-      },
-      quote: {
-        text: source.text.slice(quote.span.start, quote.span.end),
-        label: deriveLabel(source.structureMap, quote.span, source.text.length),
-        span: quote.span,
-      },
-    });
-  }
-  return { related };
+  return { related: await toSearchHitResponses(hits, deps.repository) };
 }

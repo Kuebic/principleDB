@@ -12,7 +12,7 @@
 // client doesn't have to special-case "nothing found".
 
 import { deriveLabel } from '../canon/derive-label';
-import type { CanonRepository, IngestProvider } from '../canon/ports';
+import type { CanonRepository, IngestProvider, SearchHit } from '../canon/ports';
 import { searchPrinciples } from '../canon/search';
 import type { SourceKind, Span } from '../canon/types';
 
@@ -48,14 +48,24 @@ export async function searchPrinciplesTool(
 ): Promise<SearchPrinciplesResponse> {
   const limit = req.limit ?? 5;
   const hits = await searchPrinciples(req.query, { ...deps, limit });
+  return { hits: await toSearchHitResponses(hits, deps.repository) };
+}
 
-  const responseHits: SearchHitResponse[] = [];
+// Enriches each SearchHit with its first Quote's snapped text, derived label,
+// and Source citation fields (title/author/kind). Hits whose first Quote or
+// Source can't be resolved are dropped — same shape as search_principles, so
+// related_principles reuses it verbatim.
+export async function toSearchHitResponses(
+  hits: SearchHit[],
+  repository: CanonRepository,
+): Promise<SearchHitResponse[]> {
+  const responses: SearchHitResponse[] = [];
   for (const hit of hits) {
     const quote = hit.principle.quotes[0];
     if (!quote) continue;
-    const source = await deps.repository.getSource(quote.sourceId);
+    const source = await repository.getSource(quote.sourceId);
     if (!source) continue;
-    responseHits.push({
+    responses.push({
       principleId: hit.principle.id,
       claim: hit.principle.claim,
       score: hit.score,
@@ -72,5 +82,5 @@ export async function searchPrinciplesTool(
       },
     });
   }
-  return { hits: responseHits };
+  return responses;
 }
