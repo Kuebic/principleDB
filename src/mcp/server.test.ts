@@ -5,6 +5,7 @@ import { FakeIngestProvider } from '../canon/fake-provider';
 import { ingestSource } from '../canon/ingest';
 import { InMemoryRepository } from '../canon/in-memory-repository';
 import type { Source } from '../canon/types';
+import type { SearchPrinciplesResponse } from './search-principles-tool';
 import { createPrincipleDbServer } from './server';
 
 const sermon: Source = {
@@ -57,14 +58,9 @@ describe('MCP server wiring (search_principles over JSON-RPC)', () => {
       arguments: { query: 'grace and obedience' },
     });
     expect(result.isError).not.toBe(true);
-    const structured = result.structuredContent as { hits: Array<Record<string, unknown>> };
+    const structured = result.structuredContent as unknown as SearchPrinciplesResponse;
     expect(structured.hits).toHaveLength(1);
-    const hit = structured.hits[0] as {
-      principleId: string;
-      claim: string;
-      quote: { text: string; label: string };
-      source: { title: string; kind: string };
-    };
+    const hit = structured.hits[0]!;
     expect(hit.principleId).toBe('serm1#p0');
     expect(hit.claim).toBe('Grace precedes obedience.');
     expect(hit.quote.text).toBe('Grace precedes obedience.');
