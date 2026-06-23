@@ -57,6 +57,14 @@ export const REQUIRED_TABLES = [
   'dedup_decision',
 ] as const;
 
+const R2_VARS = [
+  'R2_ACCOUNT_ID',
+  'R2_ACCESS_KEY_ID',
+  'R2_SECRET_ACCESS_KEY',
+  'R2_BUCKET',
+  'R2_ENDPOINT',
+] as const;
+
 export async function runDoctor(env: DoctorEnv, probeDb: ProbeDb): Promise<DoctorReport> {
   const checks: DoctorCheck[] = [];
 
@@ -71,7 +79,7 @@ export async function runDoctor(env: DoctorEnv, probeDb: ProbeDb): Promise<Docto
     requiredEnvCheck(
       'ANTHROPIC_API_KEY',
       env.ANTHROPIC_API_KEY,
-      `distil model port (ADR-0011). Get a key from https://console.anthropic.com. Default model is claude-opus-4-8; override with PRINCIPLEDB_DISTIL_MODEL.`,
+      'distil model port (ADR-0011). Get a key from https://console.anthropic.com. Default model is claude-opus-4-8; override with PRINCIPLEDB_DISTIL_MODEL.',
     ),
   );
   checks.push(
@@ -138,35 +146,28 @@ function badge(status: CheckStatus): string {
 }
 
 function requiredEnvCheck(name: string, value: string | undefined, hint: string): DoctorCheck {
-  if (value && value.length > 0) {
+  if (value) {
     return { name, status: 'ok', detail: 'set' };
   }
   return { name, status: 'fail', detail: `missing — ${hint}` };
 }
 
 function r2Check(env: DoctorEnv): DoctorCheck {
-  const present = [
-    env.R2_ACCOUNT_ID,
-    env.R2_ACCESS_KEY_ID,
-    env.R2_SECRET_ACCESS_KEY,
-    env.R2_BUCKET,
-    env.R2_ENDPOINT,
-  ].filter((v): v is string => !!v && v.length > 0);
-  if (present.length === 5) {
-    return { name: 'R2 (blob lake)', status: 'ok', detail: 'all five vars set' };
+  const presentCount = R2_VARS.filter((k) => env[k]).length;
+  if (presentCount === R2_VARS.length) {
+    return { name: 'R2 (blob lake)', status: 'ok', detail: `all ${R2_VARS.length} vars set` };
   }
-  if (present.length === 0) {
+  if (presentCount === 0) {
     return {
       name: 'R2 (blob lake)',
       status: 'warn',
-      detail:
-        'unset — the MCP server still boots, but PDF ingest will fail. Create a Cloudflare R2 bucket and set R2_ACCOUNT_ID, R2_ACCESS_KEY_ID, R2_SECRET_ACCESS_KEY, R2_BUCKET, R2_ENDPOINT.',
+      detail: `unset — the MCP server still boots, but PDF ingest will fail. Create a Cloudflare R2 bucket and set ${R2_VARS.join(', ')}.`,
     };
   }
   return {
     name: 'R2 (blob lake)',
     status: 'warn',
-    detail: 'partially set — fill in all of R2_ACCOUNT_ID, R2_ACCESS_KEY_ID, R2_SECRET_ACCESS_KEY, R2_BUCKET, R2_ENDPOINT before ingesting PDFs.',
+    detail: `partially set — fill in all of ${R2_VARS.join(', ')} before ingesting PDFs.`,
   };
 }
 
