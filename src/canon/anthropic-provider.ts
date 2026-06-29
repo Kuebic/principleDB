@@ -107,17 +107,28 @@ export interface AnthropicIngestProviderOptions {
   modelVersion?: string;
   promptVersion?: string;
   maxTokens?: number;
+  // How many times the SDK retries a 429 / 5xx / connection error before giving
+  // up (exponential backoff, honoring the `retry-after` header). Defaults to the
+  // SDK's own default of 2. Surfaced as a knob (PRINCIPLEDB_MAX_RETRIES) because
+  // a distil call sharing an Opus rate bucket with a live session can hit
+  // transient 429s — more retries ride out the burst. `max_tokens` is
+  // deliberately NOT a knob: it does not draw on the OTPM budget, so lowering it
+  // would only risk truncating the principle list, not reduce 429s.
+  maxRetries?: number;
 }
 
-// Pick the SDK auth shape from whichever credential the caller gave. An
+// Pick the SDK client options from whichever credential the caller gave. An
 // explicit `apiKey` wins; otherwise an `authToken` is used as a bearer token;
-// otherwise the SDK falls back to its own env lookup (ANTHROPIC_API_KEY).
+// otherwise the SDK falls back to its own env lookup (ANTHROPIC_API_KEY). A
+// `maxRetries` override, when set, is merged into whichever shape results.
 function anthropicClientOptions(
   opts: AnthropicIngestProviderOptions,
 ): ConstructorParameters<typeof Anthropic>[0] {
-  if (opts.apiKey) return { apiKey: opts.apiKey };
-  if (opts.authToken) return { authToken: opts.authToken };
-  return {};
+  const base: ConstructorParameters<typeof Anthropic>[0] =
+    opts.maxRetries !== undefined ? { maxRetries: opts.maxRetries } : {};
+  if (opts.apiKey) return { ...base, apiKey: opts.apiKey };
+  if (opts.authToken) return { ...base, authToken: opts.authToken };
+  return base;
 }
 
 interface DistilToolInput {

@@ -21,6 +21,10 @@ export interface BuildDepsEnv {
   OPENAI_API_KEY?: string;
   PRINCIPLEDB_DISTIL_MODEL?: string;
   PRINCIPLEDB_EMBED_MODEL?: string;
+  // Overrides the Anthropic SDK's retry count (default 2) for transient 429 /
+  // 5xx / connection errors — useful when a distil call shares an Opus rate
+  // bucket with a live session. Parsed as a non-negative integer.
+  PRINCIPLEDB_MAX_RETRIES?: string;
 }
 
 export interface BuiltDeps {
@@ -46,6 +50,10 @@ export function buildPrincipleDbDepsFromEnv(env: BuildDepsEnv = process.env): Bu
     );
   }
 
+  // Parse the retry override before opening the pool, so a bad value fails loud
+  // instead of leaking a connection pool behind the throw.
+  const maxRetries = parseMaxRetries(env.PRINCIPLEDB_MAX_RETRIES);
+
   const pool = new pg.Pool({ connectionString: env.DATABASE_URL });
   const repository = new PostgresCanonRepository(pool);
   const embed = createOpenAIEmbedder({
@@ -56,6 +64,7 @@ export function buildPrincipleDbDepsFromEnv(env: BuildDepsEnv = process.env): Bu
     ...anthropicAuth,
     embed,
     ...(env.PRINCIPLEDB_DISTIL_MODEL ? { model: env.PRINCIPLEDB_DISTIL_MODEL } : {}),
+    ...(maxRetries !== undefined ? { maxRetries } : {}),
   });
 
   return {
@@ -73,4 +82,18 @@ function anthropicCredential(
   if (env.ANTHROPIC_API_KEY) return { apiKey: env.ANTHROPIC_API_KEY };
   if (env.CLAUDE_CODE_OAUTH_TOKEN) return { authToken: env.CLAUDE_CODE_OAUTH_TOKEN };
   return null;
+}
+
+// Parse PRINCIPLEDB_MAX_RETRIES into the Anthropic client's maxRetries option.
+// Unset (or empty) → undefined, so the SDK's default of 2 applies. A set-but-
+// invalid value throws rather than silently disabling retries.
+function parseMaxRetries(raw: string | undefined): number | undefined {
+  if (raw === undefined || raw === '') return undefined;
+  const n = Number(raw);
+  if (!Number.isInteger(n) || n < 0) {
+    throw new Error(
+      `PRINCIPLEDB_MAX_RETRIES must be a non-negative integer, got "${raw}".`,
+    );
+  }
+  return n;
 }

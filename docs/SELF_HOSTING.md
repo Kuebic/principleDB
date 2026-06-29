@@ -83,7 +83,12 @@ model for its job (ADR-0011):
 - **Anthropic** (`ANTHROPIC_API_KEY`) — distillation. The default model is
   **`claude-opus-4-8`**. Override with `PRINCIPLEDB_DISTIL_MODEL=<any Claude
   model id>` to trade fidelity for cost. Key from
-  <https://console.anthropic.com>.
+  <https://console.anthropic.com>. A Claude Code subscription token
+  (`CLAUDE_CODE_OAUTH_TOKEN`) also works in place of the API key — but it shares
+  one Opus rate bucket with your live Claude Code session, so a distil call can
+  hit transient `429`s. Bump `PRINCIPLEDB_MAX_RETRIES=<n>` (SDK default 2) to
+  ride out the bursts. (A pay-as-you-go `ANTHROPIC_API_KEY` sits on a separate
+  bucket and sidesteps this — it takes priority when both are set.)
 - **OpenAI** (`OPENAI_API_KEY`) — embeddings. The default is
   **`text-embedding-3-small`** at 1536 dim, pinned to match the schema's
   `EMBEDDING_DIM`. Key from <https://platform.openai.com/api-keys>.

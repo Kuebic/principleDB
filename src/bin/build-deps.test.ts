@@ -73,6 +73,23 @@ describe('buildPrincipleDbDepsFromEnv', () => {
     expect(out.deps.provider.provenance.distilModel).toBe('claude-sonnet-4-6');
   });
 
+  it('threads PRINCIPLEDB_MAX_RETRIES into the Anthropic client when set', () => {
+    const out = buildPrincipleDbDepsFromEnv({ ...fullEnv, PRINCIPLEDB_MAX_RETRIES: '5' });
+    built.push(out);
+    expect(
+      (out.deps.provider as unknown as { client: { maxRetries: number } }).client.maxRetries,
+    ).toBe(5);
+  });
+
+  it('throws a clear error on a non-integer or negative PRINCIPLEDB_MAX_RETRIES', () => {
+    expect(() =>
+      buildPrincipleDbDepsFromEnv({ ...fullEnv, PRINCIPLEDB_MAX_RETRIES: 'abc' }),
+    ).toThrow(/PRINCIPLEDB_MAX_RETRIES must be a non-negative integer/);
+    expect(() =>
+      buildPrincipleDbDepsFromEnv({ ...fullEnv, PRINCIPLEDB_MAX_RETRIES: '-1' }),
+    ).toThrow(/PRINCIPLEDB_MAX_RETRIES must be a non-negative integer/);
+  });
+
   it('exposes a close() that drains the pg pool', async () => {
     const out = buildPrincipleDbDepsFromEnv(fullEnv);
     await expect(out.close()).resolves.toBeUndefined();

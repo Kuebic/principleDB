@@ -77,6 +77,22 @@ describe('AnthropicIngestProvider (unit)', () => {
     expect(provider.provenance.distilPromptVersion).toBe(PROMPT_VERSION);
   });
 
+  it('defaults to the SDK retry count (2) when maxRetries is unset', () => {
+    // Real SDK-construction branch (no stub client) so we can read the client's
+    // maxRetries back off the constructed Anthropic instance.
+    const provider = new AnthropicIngestProvider({ embed: noEmbed, authToken: 'sk-ant-oat-test' });
+    expect((provider as unknown as { client: { maxRetries: number } }).client.maxRetries).toBe(2);
+  });
+
+  it('threads maxRetries into the Anthropic client (PRINCIPLEDB_MAX_RETRIES knob)', () => {
+    const provider = new AnthropicIngestProvider({
+      embed: noEmbed,
+      authToken: 'sk-ant-oat-test',
+      maxRetries: 5,
+    });
+    expect((provider as unknown as { client: { maxRetries: number } }).client.maxRetries).toBe(5);
+  });
+
   it('allows model / version / prompt overrides for a pinned-instance Canon', () => {
     const { client } = stubClient({ principles: [] });
     const provider = new AnthropicIngestProvider({
