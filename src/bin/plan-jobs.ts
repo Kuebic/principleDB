@@ -24,10 +24,12 @@ export interface PlanInput {
   // Path to the candidate file (repo-relative or absolute — only the
   // basename and extension matter for filtering).
   path: string;
-  // The plain-text extraction from `htmlToText` for this file. Used for the
-  // near-empty guard and threaded through so the walker can re-use it when
-  // wrapping the surviving job into a Source instead of re-reading + re-
-  // extracting the file twice.
+  // The plain-text extraction from `htmlToText` for this file. Used by the
+  // near-empty guard, and re-emitted on `PlannedJob` so the dry-run summary
+  // can report a cheap "estimated input chars" figure without re-reading
+  // every file. The bulk-ingest path re-reads the raw HTML — the metadata
+  // deriver needs `<title>` / `<h1>` and the extractor needs to re-emit
+  // headings — so `cleanedText` is not consumed downstream of planning.
   cleanedText: string;
 }
 

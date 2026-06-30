@@ -53,11 +53,11 @@ async function main(): Promise<void> {
 
     const bulk = result.bulk!;
     console.log(`Walked ${args.path}`);
-    console.log(`  jobs planned        : ${result.plan.jobs.length}`);
-    console.log(`  ingested            : ${bulk.completed.length}`);
-    console.log(`  skipped (already done): ${bulk.skipped.length}`);
-    console.log(`  failed              : ${bulk.failed.length}`);
-    console.log(`  aborted             : ${bulk.aborted}`);
+    console.log(`  jobs planned : ${result.plan.jobs.length}`);
+    console.log(`  ingested : ${bulk.completed.length}`);
+    console.log(`  skipped (already done) : ${bulk.skipped.length}`);
+    console.log(`  failed : ${bulk.failed.length}`);
+    console.log(`  aborted : ${bulk.aborted}`);
     if (bulk.failed.length > 0) {
       console.log('failures:');
       for (const f of bulk.failed) console.log(`  ${f.error}`);

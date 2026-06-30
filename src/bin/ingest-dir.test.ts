@@ -1,6 +1,6 @@
 import { mkdtempSync, mkdirSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
-import { join } from 'node:path';
+import { dirname, join } from 'node:path';
 
 import { describe, expect, it } from 'vitest';
 
@@ -19,8 +19,7 @@ function makeTmpCorpus(): string {
 
 function writeFile(root: string, relPath: string, contents: string): void {
   const full = join(root, relPath);
-  const dir = full.replace(/[/\\][^/\\]+$/, '');
-  if (dir !== full) mkdirSync(dir, { recursive: true });
+  mkdirSync(dirname(full), { recursive: true });
   writeFileSync(full, contents, 'utf8');
 }
 
@@ -158,9 +157,12 @@ describe('ingestDirectory — real ingest', () => {
 
     const result = await ingestDirectory(root, { provider, repository }, { limit: 2 });
 
+    // --limit caps the batch at the first N jobs in the lexical order planJobs returns.
     expect(result.bulk!.completed).toHaveLength(2);
-    // The limit applies in the lexical order planJobs returns.
-    expect(result.bulk!.completed.map((c) => c.sourceId)).toHaveLength(2);
+    expect(result.bulk!.completed.map((c) => c.sourceId)).toEqual([
+      join(root, 'Talks/Talk-200101.html'),
+      join(root, 'Talks/Talk-200202.html'),
+    ]);
   });
 
   it('walks subdirectories recursively', async () => {
