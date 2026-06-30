@@ -11,9 +11,19 @@
 //
 // The rationale on every LLM consultation is persisted so the Owner can
 // inspect dedup decisions (PRD AC #3).
+//
+// Concurrency (#23, PRD #21): confirms for distinct Principles within one
+// Source run under a bounded worker pool — the wall-clock win is large
+// because the candidate-pre-filter cap (~5) and break-on-first-`same`
+// short-circuit make each Principle's confirm walk cheap, but ~265 such walks
+// per Source were previously sequential. Within one Principle's candidate
+// walk we KEEP the serial break-on-first short-circuit (fan-out would waste
+// confirms on the merged-away tail). bulkIngest still runs Sources serially
+// (ADR-0008 reproducibility — each Source dedups against a stable Canon
+// snapshot).
 
 import { provenanceTag } from './admission';
-import type { CanonRepository, IngestProvider, SearchHit } from './ports';
+import type { CanonRepository, IngestProvider, SearchHit, SameClaimVerdict } from './ports';
 import type {
   DedupDecision,
   DistilProvenance,
@@ -31,11 +41,32 @@ export const DEFAULT_DEDUP_THRESHOLD = 0.4;
 // without ballooning LLM calls; the loop breaks on the first confirmed merge.
 const DEFAULT_TOP_K = 5;
 
+// Bounded pool for confirm fan-out across Principles within a Source. 8 keeps
+// the OAuth-token rate bucket comfortable on Haiku while still collapsing the
+// ~265 serial round-trips per Source into a handful of waves; the spike (#25)
+// will measure P_max and the doctor/CLI can override per host.
+export const DEFAULT_CONFIRM_CONCURRENCY = 8;
+
+// 429 backoff. The Anthropic SDK retries internally (PRINCIPLEDB_MAX_RETRIES);
+// this layer is the application-level safety net — if a confirm STILL throws
+// 429 after SDK retries, we back off and retry inside the worker so the run
+// completes rather than aborting on a transient burst.
+const DEFAULT_CONFIRM_RETRIES = 5;
+const DEFAULT_CONFIRM_RETRY_INITIAL_DELAY_MS = 250;
+
 export interface DedupContext {
   provider: IngestProvider;
   repository: CanonRepository;
   threshold?: number;
   topK?: number;
+  // Worker-pool size for confirm fan-out across Principles within a Source.
+  // Defaults to DEFAULT_CONFIRM_CONCURRENCY. Set to 1 to recover the
+  // pre-#23 serial loop (used by the parallel≡serial equivalence test).
+  confirmConcurrency?: number;
+  // Maximum extra attempts on HTTP 429 before propagating the error.
+  confirmRetries?: number;
+  // Initial backoff delay; doubles per retry.
+  confirmRetryInitialDelayMs?: number;
 }
 
 export interface DedupResult {
@@ -43,6 +74,19 @@ export interface DedupResult {
   attachedQuotes: LocatedQuote[];
   decisions: DedupDecision[];
 }
+
+interface PrincipleSlot {
+  fresh?: Principle;
+  attachedQuote?: LocatedQuote;
+  decisions: DedupDecision[];
+}
+
+function isRateLimit(e: unknown): boolean {
+  if (!e || typeof e !== 'object') return false;
+  return (e as { status?: unknown }).status === 429;
+}
+
+const sleep = (ms: number) => new Promise<void>((r) => setTimeout(r, ms));
 
 export async function dedup(
   principles: Principle[],
@@ -52,17 +96,19 @@ export async function dedup(
 ): Promise<DedupResult> {
   const threshold = ctx.threshold ?? DEFAULT_DEDUP_THRESHOLD;
   const topK = ctx.topK ?? DEFAULT_TOP_K;
+  const concurrency = Math.max(1, ctx.confirmConcurrency ?? DEFAULT_CONFIRM_CONCURRENCY);
+  const retries = Math.max(0, ctx.confirmRetries ?? DEFAULT_CONFIRM_RETRIES);
+  const initialDelay = Math.max(
+    0,
+    ctx.confirmRetryInitialDelayMs ?? DEFAULT_CONFIRM_RETRY_INITIAL_DELAY_MS,
+  );
   const tag = provenanceTag(provenance);
-
-  const freshPrinciples: Principle[] = [];
-  const attachedQuotes: LocatedQuote[] = [];
-  const decisions: DedupDecision[] = [];
 
   // Decision IDs are derived purely from (principleIdx, candidateIdx) — no
   // shared mutable counter. Mirrors the already-safe `aq${idx}` attached-quote
-  // ID scheme and keeps ADR-0008 idempotency intact once confirms run in
-  // parallel (#23): the same (principle, candidate) position always mints the
-  // same ID regardless of completion order.
+  // ID scheme and keeps ADR-0008 idempotency intact under concurrency (#23):
+  // the same (principle, candidate) position always mints the same ID
+  // regardless of completion order in the worker pool.
   const buildDecision = (
     principleIdx: number,
     candidateIdx: number,
@@ -83,7 +129,25 @@ export async function dedup(
     distilPromptVersion: provenance.distilPromptVersion,
   });
 
-  for (const [idx, principle] of principles.entries()) {
+  const confirmWithBackoff = async (
+    a: string,
+    b: string,
+  ): Promise<SameClaimVerdict> => {
+    let delay = initialDelay;
+    for (let attempt = 0; attempt <= retries; attempt++) {
+      try {
+        return await ctx.provider.confirmSameClaim(a, b);
+      } catch (e) {
+        if (!isRateLimit(e) || attempt === retries) throw e;
+        if (delay > 0) await sleep(delay);
+        delay *= 2;
+      }
+    }
+    throw new Error('unreachable: confirmWithBackoff exited without a return');
+  };
+
+  const processPrinciple = async (idx: number): Promise<PrincipleSlot> => {
+    const principle = principles[idx]!;
     const candidates = await ctx.repository.findSimilarPrinciplesExcludingSource(
       principle.embedding,
       source.id,
@@ -92,18 +156,16 @@ export async function dedup(
     );
 
     if (candidates.length === 0) {
-      freshPrinciples.push(principle);
-      continue;
+      return { fresh: principle, decisions: [] };
     }
 
-    let merged = false;
+    const decs: DedupDecision[] = [];
     for (const [cidx, candidate] of candidates.entries()) {
-      const verdict = await ctx.provider.confirmSameClaim(
-        principle.claim,
-        candidate.principle.claim,
-      );
+      const verdict = await confirmWithBackoff(principle.claim, candidate.principle.claim);
       if (!verdict.same) {
-        decisions.push(buildDecision(idx, cidx, candidate, principle.claim, 'kept-separate', verdict.rationale));
+        decs.push(
+          buildDecision(idx, cidx, candidate, principle.claim, 'kept-separate', verdict.rationale),
+        );
         continue;
       }
       // Attach this source's Quote to the existing Principle. The Quote ID
@@ -112,17 +174,42 @@ export async function dedup(
       // and a re-ingest under a different provenance is additive (distinct
       // ID).
       const original = principle.quotes[0]!;
-      attachedQuotes.push({
+      const attachedQuote: LocatedQuote = {
         ...original,
         id: `${source.id}#${tag}#aq${idx}`,
         principleId: candidate.principle.id,
-      });
-      decisions.push(buildDecision(idx, cidx, candidate, principle.claim, 'merged', verdict.rationale));
-      merged = true;
-      break;
+      };
+      decs.push(
+        buildDecision(idx, cidx, candidate, principle.claim, 'merged', verdict.rationale),
+      );
+      return { attachedQuote, decisions: decs };
     }
 
-    if (!merged) freshPrinciples.push(principle);
+    return { fresh: principle, decisions: decs };
+  };
+
+  // Bounded worker pool. Result slots are indexed by principle position, not
+  // completion order, so the flattened output is byte-identical to the serial
+  // loop regardless of scheduling — the "provably equivalent" guarantee.
+  const slots = new Array<PrincipleSlot>(principles.length);
+  let next = 0;
+  const worker = async () => {
+    while (true) {
+      const i = next++;
+      if (i >= principles.length) return;
+      slots[i] = await processPrinciple(i);
+    }
+  };
+  const workerCount = Math.min(concurrency, principles.length);
+  await Promise.all(Array.from({ length: workerCount }, worker));
+
+  const freshPrinciples: Principle[] = [];
+  const attachedQuotes: LocatedQuote[] = [];
+  const decisions: DedupDecision[] = [];
+  for (const slot of slots) {
+    if (slot.fresh) freshPrinciples.push(slot.fresh);
+    if (slot.attachedQuote) attachedQuotes.push(slot.attachedQuote);
+    decisions.push(...slot.decisions);
   }
 
   return { freshPrinciples, attachedQuotes, decisions };

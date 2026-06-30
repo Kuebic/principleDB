@@ -13,9 +13,18 @@ const DEFAULT_PROVENANCE: DistilProvenance = {
   distilPromptVersion: 'test-v1',
 };
 
+// Scripted verdict — sync or async. Async support lets dedup tests simulate
+// latency (for concurrency-cap assertions) and throw simulated HTTP 429s
+// without leaking a Promise dependency into call sites that just return a
+// literal verdict.
+export type SameClaimScript = (
+  a: string,
+  b: string,
+) => SameClaimVerdict | Promise<SameClaimVerdict>;
+
 // Default dedup verdict: never merge. Tests that exercise dedup pass an
 // explicit script.
-const DEFAULT_SAME_CLAIM: (a: string, b: string) => SameClaimVerdict = () => ({
+const DEFAULT_SAME_CLAIM: SameClaimScript = () => ({
   same: false,
   rationale: 'fake provider default — keep separate',
 });
@@ -34,13 +43,13 @@ export class FakeIngestProvider implements IngestProvider {
   readonly provenance: DistilProvenance;
   private readonly script: (input: DistilInput) => DistilledItem[];
   private readonly dim: number;
-  private readonly sameClaimScript: (a: string, b: string) => SameClaimVerdict;
+  private readonly sameClaimScript: SameClaimScript;
 
   constructor(
     script: (input: DistilInput) => DistilledItem[],
     provenance: DistilProvenance = DEFAULT_PROVENANCE,
     dim = 128,
-    sameClaimScript: (a: string, b: string) => SameClaimVerdict = DEFAULT_SAME_CLAIM,
+    sameClaimScript: SameClaimScript = DEFAULT_SAME_CLAIM,
   ) {
     this.script = script;
     this.provenance = provenance;
@@ -57,6 +66,6 @@ export class FakeIngestProvider implements IngestProvider {
   }
 
   async confirmSameClaim(a: string, b: string): Promise<SameClaimVerdict> {
-    return this.sameClaimScript(a, b);
+    return await this.sameClaimScript(a, b);
   }
 }
