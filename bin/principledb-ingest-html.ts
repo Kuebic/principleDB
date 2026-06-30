@@ -11,7 +11,6 @@
 // the result.
 
 import { readFileSync } from 'node:fs';
-import { basename } from 'node:path';
 
 import { buildPrincipleDbDepsFromEnv } from '../src/bin/build-deps';
 import { formatIngestSummary } from '../src/bin/ingest-text';
@@ -30,7 +29,9 @@ async function main(): Promise<void> {
     const { source, result } = await ingestHtml(
       {
         html,
-        filename: basename(args.file),
+        // Pass the full path through so the deriver can read the parent dir
+        // for `author` and the basename for the trailing date token.
+        path: args.file,
         ...(args.title !== undefined ? { title: args.title } : {}),
         ...(args.author !== undefined ? { author: args.author } : {}),
         ...(args.kind !== undefined ? { kind: args.kind } : {}),

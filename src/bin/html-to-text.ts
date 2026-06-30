@@ -6,9 +6,10 @@
 // dependency is isolated behind this one function — nothing else in the repo
 // imports it directly.
 //
-// Heading capture (`{ offset, heading }[]`) is part of the return shape so the
-// metadata slice (issue #13) can fill it in without touching callers; this
-// slice returns an empty array.
+// Headings (`<h1>`–`<h3>`) are captured as `{ offset, heading }[]` so the
+// Source's `structureMap` can label located Quotes by enclosing section (slice
+// 2, issue #13). A control-char sentinel is woven through the walk to keep the
+// offset accurate after whitespace collapse without rewriting the collapser.
 
 import { HTMLElement, NodeType, parse, type Node } from 'node-html-parser';
 
@@ -77,18 +78,31 @@ const PARAGRAPH_TAGS = new Set([
   'hr',
 ]);
 
+// Tags we lift into the `headings` structure map. h4-h6 are intentionally out;
+// the slice's downstream label use (section navigation for Quotes) reads more
+// cleanly when only the top three levels are anchors.
+const HEADING_TAGS = new Set(['h1', 'h2', 'h3']);
+
+// Sentinel char emitted into the walk's text stream right where a captured
+// heading begins. It's a control char that won't survive entity decoding from
+// real input and won't be removed by `.trim()` (so it rides through the
+// whitespace collapse intact). The post-pass scans for it, records the heading
+// offset, and strips it from the final text.
+const HEADING_SENTINEL = '';
+
 export function htmlToText(html: string): ExtractedHtml {
   if (html.length === 0) {
     return { text: '', headings: [] };
   }
   const root = parse(html, { comment: false });
   const parts: string[] = [];
-  walk(root, parts);
-  const text = collapseWhitespace(parts.join(''));
-  return { text, headings: [] };
+  const headingTexts: string[] = [];
+  walk(root, parts, headingTexts);
+  const collapsed = collapseWhitespace(parts.join(''));
+  return extractHeadings(collapsed, headingTexts);
 }
 
-function walk(node: Node, parts: string[]): void {
+function walk(node: Node, parts: string[], headingTexts: string[]): void {
   if (node.nodeType === NodeType.COMMENT_NODE) return;
   if (node.nodeType === NodeType.TEXT_NODE) {
     parts.push(node.text);
@@ -105,7 +119,46 @@ function walk(node: Node, parts: string[]): void {
   // opener; that single emit is the full paragraph break.
   if (BLOCK_TAGS.has(tag)) parts.push(PARAGRAPH_TAGS.has(tag) ? '\n\n' : '\n');
 
-  for (const child of node.childNodes) walk(child, parts);
+  if (HEADING_TAGS.has(tag)) {
+    const headingText = normalizeHeadingText(node.text);
+    if (headingText.length > 0) {
+      parts.push(HEADING_SENTINEL);
+      headingTexts.push(headingText);
+    }
+  }
+
+  for (const child of node.childNodes) walk(child, parts, headingTexts);
+}
+
+function normalizeHeadingText(raw: string): string {
+  return raw.replace(/\s+/g, ' ').trim();
+}
+
+// Walk the collapsed text once: any sentinel marks where the next captured
+// heading starts in the OUTPUT (sentinel-stripped) text. Skip whitespace that
+// happened to land between the sentinel and the heading's first real char so
+// the offset always lands on a non-space.
+function extractHeadings(collapsed: string, headingTexts: string[]): ExtractedHtml {
+  const headings: ExtractedHeading[] = [];
+  let out = '';
+  let hIdx = 0;
+  let i = 0;
+  while (i < collapsed.length) {
+    const c = collapsed[i]!;
+    if (c === HEADING_SENTINEL) {
+      let j = i + 1;
+      while (j < collapsed.length && /\s/.test(collapsed[j]!)) j++;
+      if (hIdx < headingTexts.length) {
+        headings.push({ offset: out.length, heading: headingTexts[hIdx]! });
+        hIdx++;
+      }
+      i = j;
+      continue;
+    }
+    out += c;
+    i++;
+  }
+  return { text: out, headings };
 }
 
 // Squash horizontal whitespace runs, collapse 3+ blank lines down to a single

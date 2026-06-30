@@ -103,8 +103,40 @@ describe('htmlToText', () => {
     expect(text).toContain('more');
   });
 
-  it('returns a headings array (may be empty in this slice)', () => {
-    const { headings } = htmlToText('<body><p>nothing</p></body>');
-    expect(Array.isArray(headings)).toBe(true);
+  it('returns an empty headings array when no h1–h3 are present', () => {
+    expect(htmlToText('<body><p>nothing</p></body>').headings).toEqual([]);
+  });
+
+  it('captures h1–h3 in document order with offsets into the cleaned text', () => {
+    const html =
+      '<body><h1>Intro</h1><p>preface</p><h2>Sub</h2><p>body</p><h3>Detail</h3><p>tail</p></body>';
+    const { text, headings } = htmlToText(html);
+    expect(headings).toEqual([
+      { offset: 0, heading: 'Intro' },
+      { offset: text.indexOf('Sub'), heading: 'Sub' },
+      { offset: text.indexOf('Detail'), heading: 'Detail' },
+    ]);
+    for (const { offset, heading } of headings) {
+      // Offset points at the first character of the heading text in the cleaned output.
+      expect(text.slice(offset, offset + heading.length)).toBe(heading);
+    }
+  });
+
+  it('does not capture h4–h6 (Source labels only need h1–h3 per the slice spec)', () => {
+    const html = '<body><h1>A</h1><h4>skip</h4><h5>skip</h5><h6>skip</h6><h2>B</h2></body>';
+    const { headings } = htmlToText(html);
+    expect(headings.map((h) => h.heading)).toEqual(['A', 'B']);
+  });
+
+  it('normalizes internal whitespace and nested inline markup in heading text', () => {
+    const html = '<body><h2>On <em>Grace</em>   and   Mercy</h2><p>x</p></body>';
+    const { text, headings } = htmlToText(html);
+    expect(headings).toEqual([{ offset: 0, heading: 'On Grace and Mercy' }]);
+    expect(text.startsWith('On Grace and Mercy')).toBe(true);
+  });
+
+  it('skips empty headings (offset would be meaningless)', () => {
+    const { headings } = htmlToText('<body><h1></h1><h2>Real</h2></body>');
+    expect(headings).toEqual([{ offset: 0, heading: 'Real' }]);
   });
 });

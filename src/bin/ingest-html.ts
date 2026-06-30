@@ -1,59 +1,39 @@
-// HTML ingest core (Phase 0 / Slice 1, issue #12).
+// HTML ingest core (Phase 0, issue #12 + issue #13).
 //
-// The thinnest end-to-end path for an HTML file: extract clean body text →
-// derive a minimal Source title → build a text Source → run the existing
-// `ingestText` pipeline so Principles land in the Canon. No changes to the
-// ingest core itself; the HTML adapter is layered cleanly on top.
+// The thinnest end-to-end path for an HTML file: extract clean body text +
+// h1–h3 heading offsets → derive title / author / kind / date from path +
+// markup → build a text Source carrying a text-headings structureMap → run
+// the existing `ingestText` pipeline so Principles land in the Canon. No
+// changes to the ingest core itself; the HTML adapter is layered cleanly on
+// top.
 //
-// Pure parts (arg parsing, title derivation, source construction) are
-// unit-tested with fakes. The impure shell at `bin/principledb-ingest-html.ts`
-// reads the file and wires real Postgres + Anthropic deps via
-// `buildPrincipleDbDepsFromEnv`.
-
-import { HTMLElement, parse } from 'node-html-parser';
+// All design surface (extractor, deriver, Source assembly, arg parsing) is
+// pure and unit-tested with fakes. The impure shell at
+// `bin/principledb-ingest-html.ts` reads the file and wires real Postgres +
+// Anthropic deps via `buildPrincipleDbDepsFromEnv`.
 
 import type { CanonRepository, IngestProvider } from '../canon/ports';
-import type { SourceKind } from '../canon/types';
+import type { SourceKind, StructureMap } from '../canon/types';
+import { deriveHtmlSourceMetadata } from './derive-html-metadata';
 import { htmlToText } from './html-to-text';
-import { ingestText, parseIngestArgs, type IngestArgs, type IngestTextOutcome } from './ingest-text';
+import {
+  ingestText,
+  parseIngestArgs,
+  type IngestArgs,
+  type IngestTextOutcome,
+} from './ingest-text';
 
 export interface HtmlSourceInput {
   html: string;
-  // The file's basename, used as the fallback title when neither <title> nor
-  // <h1> is present in the markup. Slice 2 (issue #13) extends this to
-  // author/date/kind derivation from the full path.
-  filename: string;
+  // Repo-relative or absolute path. The metadata deriver reads the immediate
+  // parent directory (→ author) and the basename (→ date token, fallback title).
+  path: string;
+  // Explicit overrides; when omitted, derived from path + HTML. The CLI maps
+  // `--title/--author/--kind/--date` flags onto these.
   title?: string;
   author?: string;
   kind?: SourceKind;
   date?: string;
-}
-
-// Title preference per the slice spec: HTML <title> → first <h1> → humanized
-// filename. Empty/whitespace-only matches don't count, so an empty `<title>`
-// falls through to <h1>.
-export function deriveHtmlTitle(html: string, fallback: string): string {
-  const root = parse(html);
-  const fromTitle = pickTextFrom(root.querySelector('title'));
-  if (fromTitle) return fromTitle;
-  const fromH1 = pickTextFrom(root.querySelector('h1'));
-  if (fromH1) return fromH1;
-  return humanizeFilename(fallback);
-}
-
-function pickTextFrom(el: HTMLElement | null): string | null {
-  if (!el) return null;
-  const text = el.text.trim();
-  return text.length > 0 ? text : null;
-}
-
-// Drop the trailing extension, then map underscores/hyphens/dots to spaces and
-// collapse runs. Pure helper exposed for tests; slice 2 layers date stripping
-// and richer humanization on top.
-export function humanizeFilename(name: string): string {
-  const dot = name.lastIndexOf('.');
-  const stem = dot > 0 ? name.slice(0, dot) : name;
-  return stem.replace(/[._-]+/g, ' ').replace(/\s+/g, ' ').trim();
 }
 
 const HTML_INGEST_USAGE =
@@ -69,15 +49,28 @@ export async function ingestHtml(
   input: HtmlSourceInput,
   deps: { provider: IngestProvider; repository: CanonRepository },
 ): Promise<IngestTextOutcome> {
-  const { text } = htmlToText(input.html);
-  const title = input.title ?? deriveHtmlTitle(input.html, input.filename);
+  const extracted = htmlToText(input.html);
+  const derived = deriveHtmlSourceMetadata({
+    path: input.path,
+    html: input.html,
+    ...(input.kind !== undefined ? { defaultKind: input.kind } : {}),
+  });
+
+  const structureMap: StructureMap =
+    extracted.headings.length > 0
+      ? { kind: 'text-headings', headings: extracted.headings }
+      : { kind: 'none' };
+
+  const date = input.date ?? derived.date;
+
   return ingestText(
     {
-      title,
-      text,
-      ...(input.author !== undefined ? { author: input.author } : {}),
-      ...(input.kind !== undefined ? { kind: input.kind } : {}),
-      ...(input.date !== undefined ? { date: input.date } : {}),
+      title: input.title ?? derived.title,
+      text: extracted.text,
+      author: input.author ?? derived.author,
+      kind: derived.kind,
+      ...(date !== undefined ? { date } : {}),
+      structureMap,
     },
     deps,
   );
