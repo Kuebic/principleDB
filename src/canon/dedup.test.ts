@@ -157,8 +157,8 @@ describe('conservative dedup at ingest', () => {
   });
 
   it('mints dedup_decision IDs from (principleIndex, candidateIndex) so re-ingest is byte-identical (#22, ADR-0008)', async () => {
-    // Three claims in Source B all hit Source A's seeded Principle above the
-    // prefilter threshold — two are confirmed `same` (merge), one is `kept-separate`.
+    // Two claims in Source B both hit Source A's seeded Principle above the
+    // prefilter threshold — one is confirmed `same` (merge), one is `kept-separate`.
     // Re-ingesting Source B under the same provenance must produce the exact
     // same decision rows: same IDs, same order, same verdicts. The IDs must be
     // derivable from (principleIdx, candidateIdx) alone — no shared counter.
