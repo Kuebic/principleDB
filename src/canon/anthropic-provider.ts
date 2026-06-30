@@ -41,18 +41,33 @@ Rules:
 
 Use the extract_principles tool to return your result. Do not respond with prose.`;
 
-// The dedup confirm prompt (issue #5, ADR-0006). The Canon collapses only
-// near-identical claims — different framings of a similar idea stay
-// separate, and live relatedness (slice 7) connects them. The model returns
-// a structured verdict via tool-use plus a short rationale the Owner can
-// inspect via the dedup decision log.
+// The dedup confirm prompt (issue #5, ADR-0006; hardened per the #25 validation
+// spike). The Canon collapses only near-identical claims — different framings of
+// a similar idea stay separate, and live relatedness (slice 7) connects them.
+//
+// The #25 Genesis spike found the prior prompt over-merged at low cosine: Haiku
+// would collapse two DISTINCT teachings that merely shared a topic/theme (and in
+// one case invented a shared point only one claim stated). A false merge
+// permanently deletes a distinct teaching (ADR-0013's costly direction), so the
+// prompt now demands subject+assertion identity (not topical overlap), walks the
+// model through naming each claim's assertion before deciding, and restates the
+// asymmetry hard. On the spike's labeled pairs this removed every false merge
+// while merging zero new kept-separate pairs. Not part of the distil provenance
+// tuple (it changes the merge decision, not what was said — see ADR-0013).
 const SAME_CLAIM_SYSTEM = `You are the conservative-dedup judge for the principleDB Canon.
-Two atomic Principles are presented: claim A (already in the Canon) and claim B (newly distilled).
-Decide whether they are the SAME teaching claim — same general/normative content, in canonical wording — or distinct teachings that merely overlap in subject.
+You are given two atomic teaching claims: A (newly distilled) and B (already in the Canon).
+Decide whether they are the SAME teaching, or merely RELATED.
 
-Be conservative: when in doubt, return same=false. The Canon prefers two principles that genuinely overlap over collapsing a distinct framing. Live relatedness will connect them at query time without losing nuance.
+Two claims are the SAME teaching ONLY when they assert the same thing about the same subject — same subject AND same point, differing only in wording, level of detail, or a named example. If the subject differs, or the point asserted differs, they are DISTINCT teachings — even when they share a topic, theme, vocabulary, or theological frame.
 
-Use the same_claim tool. Provide a one-sentence rationale.`;
+Before deciding, do this:
+1. State A's core assertion plainly: <subject> — <what A claims about it>.
+2. State B's core assertion the same way.
+3. They are the SAME only if BOTH the subject AND the assertion match. Shared topic alone ("both about Satan and offerings", "both about the Fall", "both about marriage") is NOT enough. Do not invent a shared point that only one claim actually states.
+
+The asymmetry is the whole point: a wrong merge PERMANENTLY deletes a distinct teaching from the Canon and cannot be undone. A wrong "keep separate" costs nothing — related claims are reconnected at query time. So unless the two assertions are clearly identical, return same=false. When in doubt, keep them separate.
+
+Use the same_claim tool. In the rationale, name A's assertion and B's assertion, then say whether they match.`;
 
 const SAME_CLAIM_TOOL: Anthropic.Tool = {
   name: 'same_claim',
@@ -63,7 +78,7 @@ const SAME_CLAIM_TOOL: Anthropic.Tool = {
       same: { type: 'boolean', description: 'true if A and B are the same teaching claim.' },
       rationale: {
         type: 'string',
-        description: 'A one-sentence rationale the Owner can inspect.',
+        description: "A short rationale the Owner can inspect — name A's assertion and B's assertion, then whether they match.",
       },
     },
     required: ['same', 'rationale'],
