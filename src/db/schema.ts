@@ -90,28 +90,6 @@ export const reviewCandidate = pgTable('review_candidate', {
 // Provenance columns mirror principle/quote: same (sourceId + provenance)
 // slot wipes its decisions on re-ingest so the log stays in sync with the
 // principles it explains.
-// Durable bulk-ingest progress (issue #15, PRD #11). Keyed `(phase, source_id)`
-// so multiple ingest passes (e.g. the dir walker vs. a future re-distil sweep)
-// share one table without colliding. Backs `PostgresBulkProgressStore`, which
-// implements the existing `BulkProgressStore` port — the port itself stays
-// untouched, and `InMemoryBulkProgressStore` stays for tests.
-//
-// No FK to `source` — a row is recorded BEFORE its Source has been written by
-// `ingestSource` in early-failure scenarios is not allowed (the orchestrator
-// marks only after `ingest()` succeeds), but treating progress as a free
-// audit log keeps cascade deletes from silently rewinding work that already
-// completed downstream.
-export const bulkProgress = pgTable(
-  'bulk_progress',
-  {
-    phase: text('phase').notNull(),
-    sourceId: text('source_id').notNull(),
-  },
-  (t) => ({
-    pk: primaryKey({ columns: [t.phase, t.sourceId] }),
-  }),
-);
-
 export const dedupDecision = pgTable('dedup_decision', {
   id: text('id').primaryKey(),
   sourceId: text('source_id')
@@ -128,3 +106,24 @@ export const dedupDecision = pgTable('dedup_decision', {
   distilModelVersion: text('distil_model_version').notNull(),
   distilPromptVersion: text('distil_prompt_version').notNull(),
 });
+
+// Durable bulk-ingest progress (issue #15, PRD #11). Keyed `(phase, source_id)`
+// so multiple ingest passes (e.g. the dir walker vs. a future re-distil sweep)
+// share one table without colliding. Backs `PostgresBulkProgressStore`, which
+// implements the existing `BulkProgressStore` port — the port itself stays
+// untouched, and `InMemoryBulkProgressStore` stays for tests.
+//
+// No FK to `source`: the orchestrator only marks a Source after its `ingest()`
+// returns, so the row always points at a Source that already exists. The FK
+// is omitted so cascade deletes can't silently rewind progress for work that
+// already completed downstream — progress is treated as a free audit log.
+export const bulkProgress = pgTable(
+  'bulk_progress',
+  {
+    phase: text('phase').notNull(),
+    sourceId: text('source_id').notNull(),
+  },
+  (t) => ({
+    pk: primaryKey({ columns: [t.phase, t.sourceId] }),
+  }),
+);

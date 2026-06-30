@@ -211,20 +211,15 @@ export async function ingestDirectory(
     };
   });
 
-  // Pass already-done Source ids to `bulkIngest` as sentinel jobs so the
-  // result's `skipped` tally reflects them honestly. `progress.has` will
-  // route them to `skipped` and the thunk will never run — its body throws
-  // to surface any bug that breaks that invariant.
-  const unreadJobs: Array<{ sourceId: string; ingest: () => Promise<never> }> =
-    alreadyDone.map((sourceId) => ({
-      sourceId,
-      ingest: async () => {
-        throw new Error(`unreachable: progress reported ${sourceId} as already done`);
-      },
-    }));
-
-  const bulk = await bulkIngest([...unreadJobs, ...plannedJobs], progress);
-  return { dryRun: false, plan, bulk };
+  // Already-done Sources are folded into `bulk.skipped` directly. Routing
+  // them through `bulkIngest` would force a second `progress.has()` round-
+  // trip per Source — on a 100k-file resume that's ~99k redundant queries.
+  const bulk = await bulkIngest(plannedJobs, progress);
+  return {
+    dryRun: false,
+    plan,
+    bulk: { ...bulk, skipped: [...alreadyDone, ...bulk.skipped] },
+  };
 }
 
 // Normalize an absolute walked path to a stable, OS-independent
