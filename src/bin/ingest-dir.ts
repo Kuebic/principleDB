@@ -223,13 +223,14 @@ export async function ingestDirectory(
       ? plan.jobs.slice(0, options.limit)
       : plan.jobs;
 
-  // Build the per-job structure once so we can map sourceId → path
-  // (needed for the hash record post-loop) without re-deriving the id.
-  const sourceIdByJob = new Map<string, string>();
+  // Index the kept jobs' hashes by sourceId so the post-bulk record loop
+  // can look up each completed Source's hash in a single step.
+  const hashBySourceId = new Map<string, string>();
   const plannedJobs = limited.map((job) => {
     const relPath = repoRelativePath(rootPath, job.path);
     const sourceId = deriveHtmlSourcePathId(relPath);
-    sourceIdByJob.set(sourceId, job.path);
+    const hash = hashByPath.get(job.path);
+    if (hash !== undefined) hashBySourceId.set(sourceId, hash);
     return {
       sourceId,
       ingest: async () => {
@@ -266,9 +267,7 @@ export async function ingestDirectory(
   // skipped without reading; a different path with the same text just
   // re-pays a single distil call.
   for (const success of bulk.completed) {
-    const path = sourceIdByJob.get(success.sourceId);
-    if (path === undefined) continue;
-    const hash = hashByPath.get(path);
+    const hash = hashBySourceId.get(success.sourceId);
     if (hash !== undefined) await seenText.record(hash);
   }
 
