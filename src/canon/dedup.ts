@@ -134,16 +134,15 @@ export async function dedup(
     b: string,
   ): Promise<SameClaimVerdict> => {
     let delay = initialDelay;
-    for (let attempt = 0; attempt <= retries; attempt++) {
+    for (let attempt = 0; ; attempt++) {
       try {
         return await ctx.provider.confirmSameClaim(a, b);
       } catch (e) {
-        if (!isRateLimit(e) || attempt === retries) throw e;
+        if (!isRateLimit(e) || attempt >= retries) throw e;
         if (delay > 0) await sleep(delay);
         delay *= 2;
       }
     }
-    throw new Error('unreachable: confirmWithBackoff exited without a return');
   };
 
   const processPrinciple = async (idx: number): Promise<PrincipleSlot> => {
@@ -192,10 +191,10 @@ export async function dedup(
   // completion order, so the flattened output is byte-identical to the serial
   // loop regardless of scheduling — the "provably equivalent" guarantee.
   const slots = new Array<PrincipleSlot>(principles.length);
-  let next = 0;
+  let nextIdx = 0;
   const worker = async () => {
     while (true) {
-      const i = next++;
+      const i = nextIdx++;
       if (i >= principles.length) return;
       slots[i] = await processPrinciple(i);
     }

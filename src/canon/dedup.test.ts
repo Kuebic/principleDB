@@ -237,14 +237,15 @@ describe('conservative dedup at ingest', () => {
       r2Key: null,
       structureMap: { kind: 'none' },
     };
-    const seedRepo = () => {
+    const seedRepo = async () => {
       const repo = new InMemoryRepository();
       const seed = new FakeIngestProvider(() => [
         { claim: 'Grace precedes obedience.', quote: 'Grace precedes obedience.' },
         { claim: 'Faith without works is dead.', quote: 'Faith without works is dead.' },
         { claim: 'Love your neighbor as yourself.', quote: 'Love your neighbor as yourself.' },
       ]);
-      return ingestSource(seedSource, { provider: seed, repository: repo }).then(() => repo);
+      await ingestSource(seedSource, { provider: seed, repository: repo });
+      return repo;
     };
 
     const claimsB = [
