@@ -144,4 +144,26 @@ for (let iteration = 1; iteration <= MAX_ITERATIONS; iteration++) {
   }
 }
 
+// Final sweep. The per-iteration `git branch -D` above can lose a race with
+// worktree teardown and leak a branch (hence the try/catch that swallows it).
+// By now every sandbox is closed, so prune worktrees and delete any leftover
+// `sandcastle/*` branch that is merged into main. `--merged main` scoping means
+// this can never drop unmerged work; `-d` (not `-D`) is a second guard.
+try {
+  execSync("git worktree prune", { stdio: "inherit" });
+  const leftover = execSync("git branch --merged main --format='%(refname:short)'", {
+    encoding: "utf8",
+  })
+    .split("\n")
+    .map((b) => b.trim())
+    .filter((b) => b.startsWith("sandcastle/sequential-reviewer/"));
+  for (const b of leftover) {
+    execSync(`git branch -d ${b}`, { stdio: "inherit" });
+    console.log(`Swept leftover branch: ${b}`);
+  }
+  if (leftover.length) console.log(`Swept ${leftover.length} leftover branch(es).`);
+} catch (err) {
+  console.warn(`Branch sweep skipped (safe to ignore): ${err.message}`);
+}
+
 console.log("\nAll done.");
