@@ -41,6 +41,7 @@ function bagOfWordsEmbedding(text: string, dim: number): number[] {
 
 export class FakeIngestProvider implements IngestProvider {
   readonly provenance: DistilProvenance;
+  readonly confirmModel: string;
   private readonly script: (input: DistilInput) => DistilledItem[];
   private readonly dim: number;
   private readonly sameClaimScript: SameClaimScript;
@@ -50,11 +51,13 @@ export class FakeIngestProvider implements IngestProvider {
     provenance: DistilProvenance = DEFAULT_PROVENANCE,
     dim = 128,
     sameClaimScript: SameClaimScript = DEFAULT_SAME_CLAIM,
+    confirmModel = 'fake-confirm-model',
   ) {
     this.script = script;
     this.provenance = provenance;
     this.dim = dim;
     this.sameClaimScript = sameClaimScript;
+    this.confirmModel = confirmModel;
   }
 
   async distil(input: DistilInput): Promise<DistilledItem[]> {

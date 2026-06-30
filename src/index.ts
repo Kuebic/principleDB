@@ -7,6 +7,7 @@ export { dedup, DEFAULT_DEDUP_THRESHOLD } from './canon/dedup';
 export type { DedupContext, DedupResult } from './canon/dedup';
 export {
   AnthropicIngestProvider,
+  DEFAULT_CONFIRM_MODEL,
   DEFAULT_DISTIL_MODEL,
   PROMPT_VERSION,
 } from './canon/anthropic-provider';

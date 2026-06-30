@@ -89,6 +89,16 @@ model for its job (ADR-0011):
   hit transient `429`s. Bump `PRINCIPLEDB_MAX_RETRIES=<n>` (SDK default 2) to
   ride out the bursts. (A pay-as-you-go `ANTHROPIC_API_KEY` sits on a separate
   bucket and sidesteps this — it takes priority when both are set.)
+  - **Dedup confirm model.** The dedup "same claim?" judgment runs on a
+    separate, cheaper model by default: **`claude-haiku-4-5`**. It is a
+    narrow binary judgment with a 512-token cap, so the Opus premium is not
+    worth the rate-limit cost. Override with
+    `PRINCIPLEDB_CONFIRM_MODEL=claude-opus-4-8` (or any Claude model id) to
+    pin the confirm back to Opus if your instance's false-merge rate is too
+    high on Haiku — trades cost for caution. The confirm model is stamped on
+    every `dedup_decision` row so the audit trail remains honest across
+    model changes; it is **not** part of the distil provenance tuple, so
+    flipping it does not invalidate previously-distilled Principles.
 - **OpenAI** (`OPENAI_API_KEY`) — embeddings. The default is
   **`text-embedding-3-small`** at 1536 dim, pinned to match the schema's
   `EMBEDDING_DIM`. Key from <https://platform.openai.com/api-keys>.

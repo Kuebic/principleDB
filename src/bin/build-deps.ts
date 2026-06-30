@@ -20,6 +20,11 @@ export interface BuildDepsEnv {
   CLAUDE_CODE_OAUTH_TOKEN?: string;
   OPENAI_API_KEY?: string;
   PRINCIPLEDB_DISTIL_MODEL?: string;
+  // Override the dedup confirm model (issue #24, PRD #21). Defaults to
+  // `claude-haiku-4-5` per `AnthropicIngestProvider`. Pin back to Opus
+  // (e.g. `claude-opus-4-8`) on instances that need the higher-caution
+  // confirm — see docs/SELF_HOSTING.md.
+  PRINCIPLEDB_CONFIRM_MODEL?: string;
   PRINCIPLEDB_EMBED_MODEL?: string;
   // Overrides the Anthropic SDK's retry count (default 2) for transient 429 /
   // 5xx / connection errors — useful when a distil call shares an Opus rate
@@ -64,6 +69,7 @@ export function buildPrincipleDbDepsFromEnv(env: BuildDepsEnv = process.env): Bu
     ...anthropicAuth,
     embed,
     ...(env.PRINCIPLEDB_DISTIL_MODEL ? { model: env.PRINCIPLEDB_DISTIL_MODEL } : {}),
+    ...(env.PRINCIPLEDB_CONFIRM_MODEL ? { confirmModel: env.PRINCIPLEDB_CONFIRM_MODEL } : {}),
     ...(maxRetries !== undefined ? { maxRetries } : {}),
   });
 

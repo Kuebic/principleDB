@@ -218,6 +218,7 @@ export class PostgresCanonRepository implements CanonRepository {
             distilModel: d.distilModel,
             distilModelVersion: d.distilModelVersion,
             distilPromptVersion: d.distilPromptVersion,
+            confirmModel: d.confirmModel,
           })),
         );
       }

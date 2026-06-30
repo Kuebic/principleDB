@@ -251,6 +251,30 @@ describe.skipIf(!DATABASE_URL)('PostgresCanonRepository (integration)', () => {
       expect(decisions.rows[0].existing_principle_id).not.toBeNull();
     });
 
+    it('persists confirm_model on every dedup_decision row (#24, PRD #21)', async () => {
+      const providerA = new FakeIngestProvider(
+        () => [{ claim: 'Grace precedes obedience.', quote: 'Grace precedes obedience.' }],
+        provenanceA,
+        EMBEDDING_DIM,
+      );
+      await ingestSource(sermon, { provider: providerA, repository: repo });
+
+      const providerB = new FakeIngestProvider(
+        () => [{ claim: 'Grace precedes obedience.', quote: 'Grace precedes obedience here too.' }],
+        provenanceA,
+        EMBEDDING_DIM,
+        () => ({ same: true, rationale: 'identical claim wording' }),
+        'claude-haiku-4-5',
+      );
+      await ingestSource(sermonAlt, { provider: providerB, repository: repo });
+
+      const rows = await pool.query(
+        `SELECT confirm_model FROM "${schema}"."dedup_decision"`,
+      );
+      expect(rows.rows).toHaveLength(1);
+      expect(rows.rows[0].confirm_model).toBe('claude-haiku-4-5');
+    });
+
     it('re-ingest under the same provenance is idempotent — attached quotes and decisions stay at count 1', async () => {
       const providerA = new FakeIngestProvider(
         () => [{ claim: 'Grace precedes obedience.', quote: 'Grace precedes obedience.' }],

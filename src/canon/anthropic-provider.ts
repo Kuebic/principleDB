@@ -16,6 +16,14 @@ import type { DistilInput, IngestProvider, SameClaimVerdict } from './ports';
 import type { EmbedFn } from './openai-embedder';
 
 export const DEFAULT_DISTIL_MODEL = 'claude-opus-4-8';
+// Confirm model (issue #24, PRD #21). Defaults to Haiku — `confirmSameClaim`
+// is a narrow binary judgment with a 512-token cap, so it belongs on a
+// cheaper, faster model with more rate-limit headroom than the Opus distil.
+// Self-hosters who want to trade cost for caution can pin this back to Opus
+// via `PRINCIPLEDB_CONFIRM_MODEL` (documented in SELF_HOSTING). The confirm
+// model is intentionally NOT part of the distil provenance tuple — it
+// changes the merge decision, not what was said.
+export const DEFAULT_CONFIRM_MODEL = 'claude-haiku-4-5';
 export const PROMPT_VERSION = 'distil/v1';
 
 // The distillation prompt — versioned via PROMPT_VERSION above. Any edit here
@@ -106,6 +114,11 @@ export interface AnthropicIngestProviderOptions {
   model?: string;
   modelVersion?: string;
   promptVersion?: string;
+  // The model used for `confirmSameClaim` (issue #24, PRD #21). Defaults to
+  // `DEFAULT_CONFIRM_MODEL` (Haiku). Decoupled from `model` (distil) so the
+  // narrow confirm runs on a cheaper, faster model with more rate-limit
+  // headroom while distillation stays on Opus.
+  confirmModel?: string;
   maxTokens?: number;
   // How many times the SDK retries a 429 / 5xx / connection error before giving
   // up (exponential backoff, honoring the `retry-after` header). Defaults to the
@@ -137,6 +150,7 @@ interface DistilToolInput {
 
 export class AnthropicIngestProvider implements IngestProvider {
   readonly provenance: DistilProvenance;
+  readonly confirmModel: string;
   private readonly client: Anthropic;
   private readonly model: string;
   private readonly maxTokens: number;
@@ -145,6 +159,7 @@ export class AnthropicIngestProvider implements IngestProvider {
   constructor(opts: AnthropicIngestProviderOptions) {
     this.client = opts.client ?? new Anthropic(anthropicClientOptions(opts));
     this.model = opts.model ?? DEFAULT_DISTIL_MODEL;
+    this.confirmModel = opts.confirmModel ?? DEFAULT_CONFIRM_MODEL;
     this.maxTokens = opts.maxTokens ?? 16000;
     this.embedFn = opts.embed;
     this.provenance = {
@@ -194,7 +209,7 @@ export class AnthropicIngestProvider implements IngestProvider {
 
   async confirmSameClaim(a: string, b: string): Promise<SameClaimVerdict> {
     const response = await this.client.messages.create({
-      model: this.model,
+      model: this.confirmModel,
       max_tokens: 512,
       system: SAME_CLAIM_SYSTEM,
       tools: [SAME_CLAIM_TOOL],

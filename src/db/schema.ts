@@ -105,6 +105,12 @@ export const dedupDecision = pgTable('dedup_decision', {
   distilModel: text('distil_model').notNull(),
   distilModelVersion: text('distil_model_version').notNull(),
   distilPromptVersion: text('distil_prompt_version').notNull(),
+  // The model that produced the `confirmSameClaim` verdict (issue #24, PRD
+  // #21). Stamped on every row alongside the distil provenance so a
+  // model-mixed Canon's audit trail stays honest. Intentionally NOT part of
+  // the slot-key tuple (see `replacePrinciplesForSource`): the confirm model
+  // changes the merge decision, not what was said.
+  confirmModel: text('confirm_model').notNull(),
 });
 
 // Durable bulk-ingest progress (issue #15, PRD #11). Keyed `(phase, source_id)`

@@ -73,6 +73,23 @@ describe('buildPrincipleDbDepsFromEnv', () => {
     expect(out.deps.provider.provenance.distilModel).toBe('claude-sonnet-4-6');
   });
 
+  it('respects PRINCIPLEDB_CONFIRM_MODEL — pinning confirm back to Opus per SELF_HOSTING (#24, PRD #21)', () => {
+    const out = buildPrincipleDbDepsFromEnv({
+      ...fullEnv,
+      PRINCIPLEDB_CONFIRM_MODEL: 'claude-opus-4-8',
+    });
+    built.push(out);
+    expect(out.deps.provider.confirmModel).toBe('claude-opus-4-8');
+    // Distil default is unchanged when confirm is overridden in isolation.
+    expect(out.deps.provider.provenance.distilModel).toMatch(/^claude-opus/);
+  });
+
+  it('defaults confirmModel to Haiku without an explicit override (#24, PRD #21)', () => {
+    const out = buildPrincipleDbDepsFromEnv(fullEnv);
+    built.push(out);
+    expect(out.deps.provider.confirmModel).toMatch(/haiku/);
+  });
+
   it('threads PRINCIPLEDB_MAX_RETRIES into the Anthropic client when set', () => {
     const out = buildPrincipleDbDepsFromEnv({ ...fullEnv, PRINCIPLEDB_MAX_RETRIES: '5' });
     built.push(out);

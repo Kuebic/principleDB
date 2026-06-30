@@ -31,6 +31,12 @@ export interface SameClaimVerdict {
 
 export interface IngestProvider {
   readonly provenance: DistilProvenance;
+  // The model that produced the `confirmSameClaim` verdict — separate from
+  // the distil provenance because the confirm changes the merge decision,
+  // not what was said (issue #24, PRD #21). Surfaced on the provider so
+  // `dedup()` can stamp every `DedupDecision` without taking a config
+  // parameter, and so the audit trail stays honest in a model-mixed Canon.
+  readonly confirmModel: string;
   distil(input: DistilInput): Promise<DistilledItem[]>;
   embed(claims: string[]): Promise<number[][]>;
   // The conservative-dedup "same claim?" confirm step (issue #5, ADR-0006).

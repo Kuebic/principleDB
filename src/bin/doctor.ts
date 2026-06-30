@@ -15,6 +15,7 @@ export interface DoctorEnv {
   CLAUDE_CODE_OAUTH_TOKEN?: string;
   OPENAI_API_KEY?: string;
   PRINCIPLEDB_DISTIL_MODEL?: string;
+  PRINCIPLEDB_CONFIRM_MODEL?: string;
   PRINCIPLEDB_EMBED_MODEL?: string;
   R2_ACCOUNT_ID?: string;
   R2_ACCESS_KEY_ID?: string;
@@ -191,10 +192,11 @@ function r2Check(env: DoctorEnv): DoctorCheck {
 
 function modelOverrideNote(env: DoctorEnv): DoctorCheck {
   const distil = env.PRINCIPLEDB_DISTIL_MODEL ?? '(default: claude-opus-4-8)';
+  const confirm = env.PRINCIPLEDB_CONFIRM_MODEL ?? '(default: claude-haiku-4-5)';
   const embed = env.PRINCIPLEDB_EMBED_MODEL ?? '(default: text-embedding-3-small)';
   return {
     name: 'model configuration',
     status: 'ok',
-    detail: `distil = ${distil}; embed = ${embed}.`,
+    detail: `distil = ${distil}; confirm = ${confirm}; embed = ${embed}.`,
   };
 }

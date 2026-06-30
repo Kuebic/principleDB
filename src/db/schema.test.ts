@@ -147,6 +147,14 @@ describe('declarative Drizzle schema (ADR-0005)', () => {
         refColumn: 'id',
       });
     });
+
+    it('carries a confirm_model audit column independent of distil provenance (#24, PRD #21)', () => {
+      // The confirm model rides on every row but does NOT participate in
+      // the (sourceId, provenance) slot key — the distil provenance still
+      // owns idempotency. The column is notNull so a future audit can join
+      // on it without coping with missing values.
+      expect(column(dedupDecision, 'confirm_model').notNull).toBe(true);
+    });
   });
 
   describe('bulk_progress table backs `PostgresBulkProgressStore` (issue #15)', () => {

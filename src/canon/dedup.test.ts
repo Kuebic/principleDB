@@ -467,6 +467,45 @@ describe('conservative dedup at ingest', () => {
     expect(calls).toBe(1);
   });
 
+  it('stamps the provider-configured confirmModel on every dedup_decision row (#24, PRD #21)', async () => {
+    // Two candidates above the prefilter threshold → one verdict each → two
+    // dedup_decision rows. Every row must carry the provider's configured
+    // confirm model, decoupled from the distil provenance tuple. The
+    // confirm model is the model that produced the verdict; the audit trail
+    // stays honest in a model-mixed Canon.
+    const repository = new InMemoryRepository();
+    const providerA = new FakeIngestProvider(
+      () => [{ claim: 'Grace precedes obedience.', quote: 'Grace precedes obedience.' }],
+    );
+    await ingestSource(sermonA, { provider: providerA, repository });
+
+    const verdictScript = (a: string, _b: string) =>
+      a.startsWith('keep:')
+        ? { same: false, rationale: 'distinct framing' as const }
+        : { same: true, rationale: 'identical claim wording' as const };
+    const providerB = new FakeIngestProvider(
+      () => [
+        { claim: 'keep: Grace and obedience are linked.', quote: 'Distinct framing about grace and obedience comes next.' },
+        { claim: 'Grace precedes obedience.', quote: 'Grace precedes obedience here too.' },
+      ],
+      undefined,
+      undefined,
+      verdictScript,
+      'claude-haiku-4-5',
+    );
+
+    await ingestSource(sermonB, { provider: providerB, repository });
+    const decisions = [...repository.dedupDecisions()].filter((d) => d.sourceId === 'sermB');
+
+    expect(decisions).toHaveLength(2);
+    expect(decisions.map((d) => d.confirmModel)).toEqual(['claude-haiku-4-5', 'claude-haiku-4-5']);
+    // Decoupling: confirmModel must NOT appear inside the distil provenance
+    // tuple — it changes the merge decision, not what was said.
+    for (const d of decisions) {
+      expect(d.distilModel).not.toBe(d.confirmModel);
+    }
+  });
+
   it('does not consult the LLM when nothing in the Canon is above the prefilter threshold', async () => {
     const repository = new InMemoryRepository();
     let consulted = 0;

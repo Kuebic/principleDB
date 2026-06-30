@@ -77,6 +77,12 @@ export interface ReviewCandidate {
 // Verdict `merged` attached the new Quote to `existingPrincipleId`;
 // `kept-separate` recorded that the model said no. No-candidate cases are
 // not logged — there is nothing to inspect.
+//
+// `confirmModel` (issue #24, PRD #21) is the model that produced the verdict
+// — separate from the distil provenance because the confirm changes the
+// merge decision, not what was said. The slot key is still the distil
+// provenance tuple; the confirm model rides along on every row so a
+// model-mixed Canon's audit trail stays honest.
 export interface DedupDecision {
   id: string;
   sourceId: string;
@@ -88,4 +94,5 @@ export interface DedupDecision {
   distilModel: string;
   distilModelVersion: string;
   distilPromptVersion: string;
+  confirmModel: string;
 }

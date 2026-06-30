@@ -109,6 +109,12 @@ export async function dedup(
   // ID scheme and keeps ADR-0008 idempotency intact under concurrency (#23):
   // the same (principle, candidate) position always mints the same ID
   // regardless of completion order in the worker pool.
+  // The confirm model is stamped on every row from the provider's
+  // `confirmModel` (issue #24, PRD #21). It is NOT part of the slot key —
+  // the (sourceId, provenance) tuple still owns idempotency — but it rides
+  // along on every decision so the audit log stays honest in a
+  // model-mixed Canon.
+  const confirmModel = ctx.provider.confirmModel;
   const buildDecision = (
     principleIdx: number,
     candidateIdx: number,
@@ -127,6 +133,7 @@ export async function dedup(
     distilModel: provenance.distilModel,
     distilModelVersion: provenance.distilModelVersion,
     distilPromptVersion: provenance.distilPromptVersion,
+    confirmModel,
   });
 
   const confirmWithBackoff = async (

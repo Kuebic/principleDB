@@ -14,6 +14,7 @@ import type Anthropic from '@anthropic-ai/sdk';
 
 import {
   AnthropicIngestProvider,
+  DEFAULT_CONFIRM_MODEL,
   DEFAULT_DISTIL_MODEL,
   PROMPT_VERSION,
 } from './anthropic-provider';
@@ -192,6 +193,59 @@ describe('AnthropicIngestProvider (unit)', () => {
     expect(tool.name).toBe('same_claim');
     const userContent = params.messages[0]!.content as string;
     expect(userContent).toContain('Grace precedes obedience.');
+  });
+
+  it('confirm defaults to claude-haiku-4-5; distil stays opus (#24, PRD #21)', () => {
+    const { client } = stubClient({ principles: [] });
+    const provider = new AnthropicIngestProvider({ client, embed: noEmbed });
+    expect(provider.provenance.distilModel).toBe(DEFAULT_DISTIL_MODEL);
+    expect(provider.confirmModel).toBe(DEFAULT_CONFIRM_MODEL);
+    // Decoupling: the confirm default is not the distil default.
+    expect(DEFAULT_CONFIRM_MODEL).not.toBe(DEFAULT_DISTIL_MODEL);
+    expect(DEFAULT_CONFIRM_MODEL).toMatch(/haiku/);
+  });
+
+  it('confirmSameClaim hits the confirmModel, not the distil model (#24, PRD #21)', async () => {
+    const { client, calls } = stubClient(
+      { same: false, rationale: 'distinct framing' },
+      'same_claim',
+    );
+    const provider = new AnthropicIngestProvider({
+      client,
+      embed: noEmbed,
+      model: 'claude-opus-4-8',
+      confirmModel: 'claude-haiku-4-5',
+    });
+    await provider.confirmSameClaim('a', 'b');
+    expect(calls).toHaveLength(1);
+    expect(calls[0]!.model).toBe('claude-haiku-4-5');
+  });
+
+  it('honours a self-host override pinning confirmModel back to Opus (#24, PRD #21)', async () => {
+    const { client, calls } = stubClient(
+      { same: true, rationale: 'identical' },
+      'same_claim',
+    );
+    const provider = new AnthropicIngestProvider({
+      client,
+      embed: noEmbed,
+      confirmModel: 'claude-opus-4-8',
+    });
+    expect(provider.confirmModel).toBe('claude-opus-4-8');
+    await provider.confirmSameClaim('a', 'b');
+    expect(calls[0]!.model).toBe('claude-opus-4-8');
+  });
+
+  it('confirmModel does NOT appear in the distil provenance tuple (#24, PRD #21)', () => {
+    const { client } = stubClient({ principles: [] });
+    const provider = new AnthropicIngestProvider({
+      client,
+      embed: noEmbed,
+      confirmModel: 'claude-haiku-4-5',
+    });
+    expect(provider.provenance.distilModel).not.toBe(provider.confirmModel);
+    expect(provider.provenance.distilModelVersion).not.toBe(provider.confirmModel);
+    expect(provider.provenance.distilPromptVersion).not.toBe(provider.confirmModel);
   });
 
   it('confirmSameClaim defaults to keep-separate when the model omits the tool (defensive)', async () => {
