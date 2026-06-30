@@ -18,12 +18,10 @@ const SAMPLE_BYTES = 8192;
 
 export function isLikelyBinary(buffer: Buffer): boolean {
   if (buffer.length === 0) return false;
-  const sampleEnd = Math.min(buffer.length, SAMPLE_BYTES);
-  for (let i = 0; i < sampleEnd; i++) {
-    if (buffer[i] === 0) return true;
-  }
+  const sample = buffer.subarray(0, SAMPLE_BYTES);
+  if (sample.indexOf(0) !== -1) return true;
   try {
-    new TextDecoder('utf-8', { fatal: true }).decode(buffer.subarray(0, sampleEnd));
+    new TextDecoder('utf-8', { fatal: true }).decode(sample);
     return false;
   } catch {
     return true;
