@@ -48,6 +48,10 @@ const copyToWorktree = ["node_modules"];
 // Main loop
 // ---------------------------------------------------------------------------
 
+// Counts issues actually merged this run, so the end-of-run push is skipped
+// when the backlog was empty (nothing to publish).
+let mergedCount = 0;
+
 for (let iteration = 1; iteration <= MAX_ITERATIONS; iteration++) {
   console.log(`\n=== Iteration ${iteration}/${MAX_ITERATIONS} ===\n`);
 
@@ -128,6 +132,7 @@ for (let iteration = 1; iteration <= MAX_ITERATIONS; iteration++) {
   if (reviewed) {
     console.log(`\nMerging ${branch} into main...`);
     execSync(`git merge --ff-only ${branch}`, { stdio: "inherit" });
+    mergedCount++;
     // Branch deletion can fail if the sandbox's worktree hasn't been torn down
     // yet (a race in sandbox.close()): `git branch -D` refuses to delete a
     // branch still checked out by a worktree. Prune stale worktrees first, and
@@ -164,6 +169,24 @@ try {
   if (leftover.length) console.log(`Swept ${leftover.length} leftover branch(es).`);
 } catch (err) {
   console.warn(`Branch sweep skipped (safe to ignore): ${err.message}`);
+}
+
+// Publish. The harness merges to local main only; without this, a run leaves
+// its work stranded locally. Push once at the end, guarded on an actual merge,
+// and never let a rejected push (e.g. origin moved) fail the run — the work is
+// already safe on local main and can be pushed by hand.
+if (mergedCount > 0) {
+  try {
+    console.log(`\nPushing ${mergedCount} merged issue(s) to origin/main...`);
+    execSync("git push origin main", { stdio: "inherit" });
+    console.log("Pushed to origin/main.");
+  } catch (err) {
+    console.warn(
+      `Push to origin/main failed (work is safe on local main — push by hand): ${err.message}`,
+    );
+  }
+} else {
+  console.log("\nNo issues merged this run; nothing to push.");
 }
 
 console.log("\nAll done.");
