@@ -56,6 +56,7 @@ export const REQUIRED_TABLES = [
   'quote',
   'review_candidate',
   'dedup_decision',
+  'bulk_progress',
 ] as const;
 
 const R2_VARS = [

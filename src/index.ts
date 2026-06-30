@@ -109,6 +109,9 @@ export { createPrincipleDbServer, runStdio } from './mcp/server';
 export type { ServerDeps } from './mcp/server';
 export { buildPrincipleDbDepsFromEnv } from './bin/build-deps';
 export type { BuildDepsEnv, BuiltDeps } from './bin/build-deps';
+export { deriveHtmlSourcePathId } from './bin/derive-path-source-id';
+export { PostgresBulkProgressStore } from './db/postgres-bulk-progress-store';
+export type { PostgresBulkProgressStoreOptions } from './db/postgres-bulk-progress-store';
 export { formatReport, REQUIRED_TABLES, runDoctor } from './bin/doctor';
 export type {
   CheckStatus,

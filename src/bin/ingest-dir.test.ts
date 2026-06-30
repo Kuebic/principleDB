@@ -1,12 +1,14 @@
 import { mkdtempSync, mkdirSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
-import { dirname, join } from 'node:path';
+import { dirname, join, relative } from 'node:path';
 
 import { describe, expect, it } from 'vitest';
 
+import { InMemoryBulkProgressStore } from '../canon/bulk-ingest';
 import { FakeIngestProvider } from '../canon/fake-provider';
 import { InMemoryRepository } from '../canon/in-memory-repository';
 import type { DistilInput } from '../canon/ports';
+import { deriveHtmlSourcePathId } from './derive-path-source-id';
 import {
   formatDryRunSummary,
   ingestDirectory,
@@ -160,8 +162,8 @@ describe('ingestDirectory — real ingest', () => {
     // --limit caps the batch at the first N jobs in the lexical order planJobs returns.
     expect(result.bulk!.completed).toHaveLength(2);
     expect(result.bulk!.completed.map((c) => c.sourceId)).toEqual([
-      join(root, 'Talks/Talk-200101.html'),
-      join(root, 'Talks/Talk-200202.html'),
+      deriveHtmlSourcePathId('Talks/Talk-200101.html'),
+      deriveHtmlSourcePathId('Talks/Talk-200202.html'),
     ]);
   });
 
@@ -176,5 +178,71 @@ describe('ingestDirectory — real ingest', () => {
 
     const result = await ingestDirectory(root, { provider, repository }, { dryRun: true });
     expect(result.plan.jobs).toHaveLength(3);
+  });
+
+  it('uses the path-based deterministic Source id (issue #15), not the content-hash id', async () => {
+    const root = makeTmpCorpus();
+    writeFile(root, 'Talks/Talk-200101.html', longHtml('Talk A'));
+
+    const provider = new FakeIngestProvider((input: DistilInput) => [
+      { claim: `claim for ${input.title}.`, quote: 'sentence one is here' },
+    ]);
+    const repository = new InMemoryRepository();
+
+    const result = await ingestDirectory(root, { provider, repository });
+    const expected = deriveHtmlSourcePathId('Talks/Talk-200101.html');
+    expect(result.bulk!.completed.map((c) => c.sourceId)).toEqual([expected]);
+    expect(await repository.getSource(expected)).not.toBeNull();
+  });
+});
+
+describe('ingestDirectory — resume', () => {
+  it('on resume, skips already-completed Sources by id WITHOUT re-reading the files', async () => {
+    // First pass: ingest two files, populate the in-memory progress store.
+    const root = makeTmpCorpus();
+    writeFile(root, 'Talks/Talk-200101.html', longHtml('Talk A'));
+    writeFile(root, 'Talks/Talk-200202.html', longHtml('Talk B'));
+
+    const provider = new FakeIngestProvider((input: DistilInput) => [
+      { claim: `claim for ${input.title}.`, quote: 'sentence one is here' },
+    ]);
+    const repository = new InMemoryRepository();
+    const progress = new InMemoryBulkProgressStore();
+
+    const first = await ingestDirectory(root, { provider, repository }, { progress });
+    expect(first.bulk!.completed).toHaveLength(2);
+    const aId = deriveHtmlSourcePathId(relative(root, join(root, 'Talks/Talk-200101.html')));
+    const bId = deriveHtmlSourcePathId(relative(root, join(root, 'Talks/Talk-200202.html')));
+    expect(await progress.has(aId)).toBe(true);
+    expect(await progress.has(bId)).toBe(true);
+
+    // Replace the files with near-empty content. If the walker re-read them
+    // on resume, `planJobs` would categorize them as `near-empty` skips and
+    // `plan.skipped` would be non-empty. The correct behaviour is: progress
+    // consulted FIRST, no read happens, `plan.skipped` stays empty.
+    writeFile(root, 'Talks/Talk-200101.html', '<html><body>x</body></html>');
+    writeFile(root, 'Talks/Talk-200202.html', '<html><body>x</body></html>');
+
+    const second = await ingestDirectory(root, { provider, repository }, { progress });
+    expect(second.plan.jobs).toHaveLength(0);
+    expect(second.plan.skipped).toHaveLength(0);
+    expect(second.bulk!.completed).toHaveLength(0);
+    expect(second.bulk!.skipped.sort()).toEqual([aId, bId].sort());
+  });
+
+  it('uses the in-memory progress store by default (re-run from a fresh store re-ingests)', async () => {
+    const root = makeTmpCorpus();
+    writeFile(root, 'Talks/Talk-200101.html', longHtml('Talk A'));
+
+    const provider = new FakeIngestProvider((input: DistilInput) => [
+      { claim: `claim for ${input.title}.`, quote: 'sentence one is here' },
+    ]);
+    const repository = new InMemoryRepository();
+
+    // No `progress` option → a new in-memory store per call → no resume.
+    const first = await ingestDirectory(root, { provider, repository });
+    const second = await ingestDirectory(root, { provider, repository });
+    expect(first.bulk!.completed).toHaveLength(1);
+    expect(second.bulk!.completed).toHaveLength(1);
   });
 });

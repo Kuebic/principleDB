@@ -34,6 +34,11 @@ export interface HtmlSourceInput {
   author?: string;
   kind?: SourceKind;
   date?: string;
+  // Override the derived Source id. The single-file CLI lets the
+  // `(title, text)` content-hash id stand; the directory walker overrides
+  // with a path-based id (issue #15) so a durable progress store can answer
+  // "already done?" without re-reading the file.
+  id?: string;
 }
 
 const HTML_INGEST_USAGE =
@@ -70,6 +75,7 @@ export async function ingestHtml(
       author: input.author ?? derived.author,
       kind: derived.kind,
       ...(date !== undefined ? { date } : {}),
+      ...(input.id !== undefined ? { id: input.id } : {}),
       structureMap,
     },
     deps,

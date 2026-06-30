@@ -127,6 +127,7 @@ describe('runDoctor', () => {
         'quote',
         'review_candidate',
         'dedup_decision',
+        'bulk_progress',
       ]),
     );
   });

@@ -19,25 +19,32 @@
 // stays the default for the single-file paths used on the ~3k high-value
 // canon (per PRD #11).
 //
-// Resumable durable progress (slice 4 / issue #15) lands in a later commit —
-// for now the walker uses `InMemoryBulkProgressStore`, which still gives the
-// per-batch idempotency we need for the slice's acceptance criteria.
+// Resumable durable progress (slice 4 / issue #15): the walker takes an
+// optional `BulkProgressStore` so the bin wires the durable Postgres impl when
+// `DATABASE_URL` is present; tests and dry-runs default to
+// `InMemoryBulkProgressStore`. The progress key is a path-based deterministic
+// Source id (`deriveHtmlSourcePathId`) computed from each file's repo-relative
+// path, so resume can skip completed Sources by id **without** re-reading
+// every HTML file from disk — essential over 100k+ files.
 
 import { readdirSync, readFileSync, statSync } from 'node:fs';
-import { join } from 'node:path';
+import { join, relative, sep } from 'node:path';
 
 import {
   bulkIngest,
   InMemoryBulkProgressStore,
+  type BulkProgressStore,
   type BulkIngestResult,
 } from '../canon/bulk-ingest';
 import type { CanonRepository, IngestProvider } from '../canon/ports';
 import type { SourceKind } from '../canon/types';
+import { deriveHtmlSourcePathId } from './derive-path-source-id';
 import { htmlToText } from './html-to-text';
 import { ingestHtml } from './ingest-html';
 import {
   planJobs,
   type JobPlan,
+  type PlanInput,
   type SkippedFile,
 } from './plan-jobs';
 
@@ -116,6 +123,10 @@ export interface IngestDirectoryOptions {
   dryRun?: boolean;
   limit?: number;
   kind?: SourceKind;
+  // Durable bulk-progress store. The bin wires `PostgresBulkProgressStore`
+  // when `DATABASE_URL` is present; tests inject the in-memory impl.
+  // Omitted ⇒ a fresh `InMemoryBulkProgressStore` is used for this run.
+  progress?: BulkProgressStore;
 }
 
 export interface IngestDirectoryResult {
@@ -130,10 +141,42 @@ export async function ingestDirectory(
   deps: { provider: IngestProvider; repository: CanonRepository },
   options: IngestDirectoryOptions = {},
 ): Promise<IngestDirectoryResult> {
-  const candidates = readHtmlCandidates(rootPath);
-  const plan = planJobs(candidates);
+  const progress = options.progress ?? new InMemoryBulkProgressStore();
+  const isDryRun = options.dryRun === true;
 
-  if (options.dryRun) {
+  // Walk paths and consult the progress store BEFORE reading any HTML —
+  // already-completed Sources never reach `readFileSync`. This is the cheap-
+  // resume guarantee (issue #15): a 100k-file corpus on resume should walk
+  // the tree (stat-only) and skip the rest, not re-read every doc.
+  //
+  // Dry-runs intentionally ignore progress so the plan reflects what a fresh
+  // run would do — the dry-run is the pre-flight, not the live tally.
+  const planInputs: PlanInput[] = [];
+  const alreadyDone: string[] = [];
+  for (const path of walkFiles(rootPath)) {
+    if (!isLikelyHtml(path)) {
+      // Non-HTML carries empty cleanedText so `planJobs` reports it as an
+      // `extension` skip — same reason it would have given before. No read.
+      planInputs.push({ path, cleanedText: '' });
+      continue;
+    }
+
+    if (!isDryRun) {
+      const relPath = repoRelativePath(rootPath, path);
+      const sourceId = deriveHtmlSourcePathId(relPath);
+      if (await progress.has(sourceId)) {
+        alreadyDone.push(sourceId);
+        continue;
+      }
+    }
+
+    const html = readFileSync(path, 'utf8');
+    const { text } = htmlToText(html);
+    planInputs.push({ path, cleanedText: text });
+  }
+  const plan = planJobs(planInputs);
+
+  if (isDryRun) {
     return { dryRun: true, plan, bulk: null };
   }
 
@@ -142,24 +185,23 @@ export async function ingestDirectory(
       ? plan.jobs.slice(0, options.limit)
       : plan.jobs;
 
-  const jobs = limited.map((job) => {
-    // Re-read the HTML for the surviving job: planning kept `cleanedText` for
-    // the near-empty guard, but `ingestHtml` wants the raw markup so the
-    // metadata deriver can read `<title>` / `<h1>` and the extractor can
-    // re-compute headings. Re-reading is cheap relative to a distil call and
-    // keeps the planner contract small.
+  const plannedJobs = limited.map((job) => {
+    const relPath = repoRelativePath(rootPath, job.path);
+    const sourceId = deriveHtmlSourcePathId(relPath);
     return {
-      // The bulk progress store is keyed by Source id — using the path as a
-      // stable per-batch id matches what the durable store will use in slice
-      // 4 (issue #15) and keeps the in-memory store sensible for re-runs of
-      // the same batch.
-      sourceId: job.path,
+      sourceId,
       ingest: async () => {
+        // Re-read the HTML for the surviving job: planning kept
+        // `cleanedText` for the near-empty guard, but `ingestHtml` wants the
+        // raw markup so the metadata deriver can read `<title>` / `<h1>`
+        // and the extractor can re-compute headings. Re-reading is cheap
+        // relative to a distil call and keeps the planner contract small.
         const html = readFileSync(job.path, 'utf8');
         const { result } = await ingestHtml(
           {
             html,
             path: job.path,
+            id: sourceId,
             ...(options.kind !== undefined ? { kind: options.kind } : {}),
           },
           deps,
@@ -169,29 +211,36 @@ export async function ingestDirectory(
     };
   });
 
-  const bulk = await bulkIngest(jobs, new InMemoryBulkProgressStore());
+  // Pass already-done Source ids to `bulkIngest` as sentinel jobs so the
+  // result's `skipped` tally reflects them honestly. `progress.has` will
+  // route them to `skipped` and the thunk will never run — its body throws
+  // to surface any bug that breaks that invariant.
+  const unreadJobs: Array<{ sourceId: string; ingest: () => Promise<never> }> =
+    alreadyDone.map((sourceId) => ({
+      sourceId,
+      ingest: async () => {
+        throw new Error(`unreachable: progress reported ${sourceId} as already done`);
+      },
+    }));
+
+  const bulk = await bulkIngest([...unreadJobs, ...plannedJobs], progress);
   return { dryRun: false, plan, bulk };
 }
 
-// Recursive walk, yielding every file so `planJobs` can report PDFs / images /
-// CSS in the skipped-by-reason summary the dry-run prints. Only files whose
-// extension matches are actually read + extracted; everything else carries an
-// empty `cleanedText` and is dropped by `planJobs`'s extension filter (which
-// runs before the near-empty check, so the reason reported is `extension`).
-function readHtmlCandidates(root: string): Array<{ path: string; cleanedText: string }> {
-  const candidates: Array<{ path: string; cleanedText: string }> = [];
-  for (const path of walkFiles(root)) {
-    if (isLikelyHtml(path)) {
-      const html = readFileSync(path, 'utf8');
-      const { text } = htmlToText(html);
-      candidates.push({ path, cleanedText: text });
-    } else {
-      candidates.push({ path, cleanedText: '' });
-    }
-  }
-  return candidates;
+// Normalize an absolute walked path to a stable, OS-independent
+// repo-relative id input: forward slashes, no leading `./`. The walker
+// receives `rootPath` from the CLI (absolute or relative); the derived id
+// must NOT change when the same corpus is walked from a different cwd, so
+// the relative path is the right anchor.
+function repoRelativePath(rootPath: string, fullPath: string): string {
+  const rel = relative(rootPath, fullPath);
+  return sep === '/' ? rel : rel.split(sep).join('/');
 }
 
+// Recursive walk, yielding every file so `planJobs` can still report PDFs /
+// images / CSS in the skipped-by-reason summary the dry-run prints. The walker
+// reads + extracts text only for HTML files that aren't already recorded as
+// done (issue #15); everything else stays a path-only entry.
 function* walkFiles(root: string): Generator<string> {
   const stack: string[] = [root];
   while (stack.length > 0) {

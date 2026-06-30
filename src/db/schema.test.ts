@@ -11,6 +11,7 @@
 import { getTableConfig, type PgTable } from 'drizzle-orm/pg-core';
 import { describe, expect, it } from 'vitest';
 import {
+  bulkProgress,
   dedupDecision,
   EMBEDDING_DIM,
   principle,
@@ -145,6 +146,18 @@ describe('declarative Drizzle schema (ADR-0005)', () => {
         refTable: 'principle',
         refColumn: 'id',
       });
+    });
+  });
+
+  describe('bulk_progress table backs `PostgresBulkProgressStore` (issue #15)', () => {
+    it('has a composite (phase, source_id) primary key, both notNull', () => {
+      const cfg = getTableConfig(bulkProgress);
+      expect(cfg.name).toBe('bulk_progress');
+      expect(column(bulkProgress, 'phase').notNull).toBe(true);
+      expect(column(bulkProgress, 'source_id').notNull).toBe(true);
+      // Composite PK lives on `extraConfigs`, not on individual columns.
+      const pkColumns = cfg.primaryKeys[0]?.columns.map((c) => c.name).sort();
+      expect(pkColumns).toEqual(['phase', 'source_id']);
     });
   });
 

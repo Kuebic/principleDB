@@ -3,9 +3,13 @@
 // Walk a corpus subtree, filter chrome / images / PDFs / nav pages, and run
 // every kept HTML file through the existing single-file `ingestHtml` path via
 // `bulkIngest` — so resumability and idempotent `(sourceId, provenance)`
-// slotting come for free (ADR-0008). The first slice that operates on a whole
-// corpus tier at once; the durable Postgres progress store is a later slice
-// (#15).
+// slotting come for free (ADR-0008).
+//
+// Bulk progress is **durable**: the walker writes "Source X is done" rows
+// into the `bulk_progress` Postgres table (`PostgresBulkProgressStore`, issue
+// #15), keyed by a path-based deterministic Source id. Restarting after a
+// crash skips completed Sources by id without re-reading their HTML — which
+// is essential over 100k+ files.
 //
 // Distil model defaults to **Haiku** for the long tail, because Opus's quality
 // premium is not worth the rate-limit cost on hundreds of cheap doctrine files
@@ -24,6 +28,7 @@ import {
   ingestDirectory,
   parseIngestDirArgs,
 } from '../src/bin/ingest-dir';
+import { PostgresBulkProgressStore } from '../src/db/postgres-bulk-progress-store';
 
 // Default to Haiku for directory walks. The single-file `ingest:html` /
 // `ingest:text` paths keep Opus as their default (already wired through
@@ -36,9 +41,13 @@ async function main(): Promise<void> {
   const args = parseIngestDirArgs(process.argv.slice(2));
 
   const env: BuildDepsEnv = { ...process.env, PRINCIPLEDB_DISTIL_MODEL: resolveModel(args.model) };
-  const { deps, close } = buildPrincipleDbDepsFromEnv(env);
+  const { deps, pool, close } = buildPrincipleDbDepsFromEnv(env);
   try {
+    // Reuse the same Postgres pool for the durable progress store so the
+    // walker doesn't open a second connection pool just to record progress.
+    const progress = new PostgresBulkProgressStore(pool, { phase: 'ingest:dir' });
     const result = await ingestDirectory(args.path, deps, {
+      progress,
       ...(args.dryRun !== undefined ? { dryRun: args.dryRun } : {}),
       ...(args.limit !== undefined ? { limit: args.limit } : {}),
       ...(args.kind !== undefined ? { kind: args.kind } : {}),
