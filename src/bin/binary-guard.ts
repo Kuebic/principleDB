@@ -36,21 +36,14 @@ const MAGIC_SIGNATURES: ReadonlyArray<Buffer> = [
 
 export function isLikelyBinary(buffer: Buffer): boolean {
   if (buffer.length === 0) return false;
-  for (const sig of MAGIC_SIGNATURES) {
-    if (startsWith(buffer, sig)) return true;
+  // `subarray` clamps to buffer length, so a too-short buffer naturally
+  // produces a non-equal view — no separate length guard needed.
+  if (MAGIC_SIGNATURES.some((sig) => buffer.subarray(0, sig.length).equals(sig))) {
+    return true;
   }
   // NUL backstop: catches binaries we don't have a magic for (other image
   // formats, partial downloads). The decoder strips residual NULs from
   // legitimate text downstream, so a NUL early in the file is a strong
   // binary signal — no legacy-text false positive risk here.
-  const sample = buffer.subarray(0, SAMPLE_BYTES);
-  return sample.indexOf(0) !== -1;
-}
-
-function startsWith(buffer: Buffer, prefix: Buffer): boolean {
-  if (buffer.length < prefix.length) return false;
-  for (let i = 0; i < prefix.length; i++) {
-    if (buffer[i] !== prefix[i]) return false;
-  }
-  return true;
+  return buffer.subarray(0, SAMPLE_BYTES).indexOf(0) !== -1;
 }
