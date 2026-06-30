@@ -38,12 +38,17 @@ export interface PlannedJob {
   cleanedText: string;
 }
 
-// `normalized-duplicate` is set by the walker's post-plan dedup pre-pass
-// (issue #16), not by `planJobs` itself — the pure planner only knows about
-// path-/content-policy filters. It's listed here so the `SkipReason` union
-// stays the single source of truth for "all reasons a file can be dropped"
-// that the dry-run summary iterates over.
-export type SkipReason = 'extension' | 'denylist' | 'near-empty' | 'normalized-duplicate';
+// `normalized-duplicate` (issue #16) and `binary` (issue #18) are set by the
+// walker before/after `planJobs`, not by `planJobs` itself — the pure planner
+// only knows about path-/content-policy filters. They're listed here so the
+// `SkipReason` union stays the single source of truth for "all reasons a file
+// can be dropped" that the dry-run summary iterates over.
+export type SkipReason =
+  | 'extension'
+  | 'denylist'
+  | 'near-empty'
+  | 'normalized-duplicate'
+  | 'binary';
 
 export interface SkippedFile {
   path: string;

@@ -263,6 +263,58 @@ const wsVariantB = (heading: string): string =>
   'this teaching is the foundation of all that follows in the divine plan.  '.repeat(20) +
   `\n  </p>\n</body></html>`;
 
+// Real-world cause: some .html files in the tparents.org mirror are actually
+// JPEG scans saved with the wrong extension. JFIF magic includes a NUL byte
+// that survives utf-8 decode and crashes the Postgres `source.text` insert.
+// The walker must skip such files cleanly (reason `binary`), not fail the run.
+describe('ingestDirectory — binary-content guard (issue #18)', () => {
+  const jfifBytes = Buffer.from([
+    0xff, 0xd8, 0xff, 0xe0, 0x00, 0x10, 0x4a, 0x46, 0x49, 0x46, 0x00, 0x01,
+    0x01, 0x00, 0x00, 0x48, 0x00, 0x48, 0x00, 0x00,
+  ]);
+
+  it('skips a binary .html file with reason `binary` instead of failing the run', async () => {
+    const root = makeTmpCorpus();
+    writeFileSync(join(root, 'Genesis-01A.html'), jfifBytes);
+    writeFile(root, 'Genesis-01B.html', longHtml('Genesis 1B'));
+
+    let distilCalls = 0;
+    const provider = new FakeIngestProvider((input: DistilInput) => {
+      distilCalls += 1;
+      return [{ claim: `claim for ${input.title}.`, quote: 'sentence one is here' }];
+    });
+    const repository = new InMemoryRepository();
+
+    const result = await ingestDirectory(root, { provider, repository });
+
+    expect(result.bulk!.failed).toEqual([]);
+    expect(result.bulk!.completed).toHaveLength(1);
+    expect(distilCalls).toBe(1);
+
+    const binarySkips = result.plan.skipped.filter((s) => s.reason === 'binary');
+    expect(binarySkips).toHaveLength(1);
+    expect(binarySkips[0]!.path).toMatch(/Genesis-01A\.html$/);
+  });
+
+  it('reports `binary` in the dry-run skip breakdown', async () => {
+    const root = makeTmpCorpus();
+    writeFileSync(join(root, 'scanned.html'), jfifBytes);
+    writeFile(root, 'real.html', longHtml('Real'));
+
+    const provider = new FakeIngestProvider(() => []);
+    const repository = new InMemoryRepository();
+
+    const result = await ingestDirectory(root, { provider, repository }, { dryRun: true });
+
+    expect(result.dryRun).toBe(true);
+    expect(result.plan.jobs).toHaveLength(1);
+    expect(
+      result.plan.skipped.filter((s) => s.reason === 'binary'),
+    ).toHaveLength(1);
+    expect(formatDryRunSummary(result.plan)).toMatch(/binary: 1/);
+  });
+});
+
 describe('ingestDirectory — normalized-text dedup pre-pass (issue #16)', () => {
   it('distils only the first of two whitespace-variant captures (intra-batch)', async () => {
     const root = makeTmpCorpus();

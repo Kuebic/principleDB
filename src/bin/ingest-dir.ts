@@ -43,6 +43,7 @@ import {
   type SeenTextStore,
 } from '../canon/seen-text-store';
 import type { SourceKind } from '../canon/types';
+import { isLikelyBinary } from './binary-guard';
 import { deriveHtmlSourcePathId } from './derive-path-source-id';
 import { htmlToText } from './html-to-text';
 import { ingestHtml } from './ingest-html';
@@ -166,6 +167,7 @@ export async function ingestDirectory(
   // Dry-runs intentionally ignore progress so the plan reflects what a fresh
   // run would do — the dry-run is the pre-flight, not the live tally.
   const planInputs: PlanInput[] = [];
+  const binarySkips: SkippedFile[] = [];
   const alreadyDone: string[] = [];
   for (const path of walkFiles(rootPath)) {
     if (!isLikelyHtml(path)) {
@@ -184,8 +186,15 @@ export async function ingestDirectory(
       }
     }
 
-    const html = readFileSync(path, 'utf8');
-    const { text } = htmlToText(html);
+    // Read as raw bytes so the binary guard (issue #18) can refuse JPEG /
+    // scanned-image content saved with a `.html` suffix BEFORE decode. NUL
+    // bytes survive utf-8 conversion and would later crash the Source insert.
+    const buffer = readFileSync(path);
+    if (isLikelyBinary(buffer)) {
+      binarySkips.push({ path, reason: 'binary' });
+      continue;
+    }
+    const { text } = htmlToText(buffer.toString('utf8'));
     planInputs.push({ path, cleanedText: text });
   }
   const initialPlan = planJobs(planInputs);
@@ -211,7 +220,7 @@ export async function ingestDirectory(
   }
   const plan: JobPlan = {
     jobs: keptJobs,
-    skipped: [...initialPlan.skipped, ...duplicateSkips],
+    skipped: [...initialPlan.skipped, ...binarySkips, ...duplicateSkips],
   };
 
   if (isDryRun) {
