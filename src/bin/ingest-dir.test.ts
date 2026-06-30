@@ -264,14 +264,24 @@ const wsVariantB = (heading: string): string =>
   `\n  </p>\n</body></html>`;
 
 // Real-world cause: some .html files in the tparents.org mirror are actually
-// JPEG scans saved with the wrong extension. JFIF magic includes a NUL byte
-// that survives utf-8 decode and crashes the Postgres `source.text` insert.
-// The walker must skip such files cleanly (reason `binary`), not fail the run.
-describe('ingestDirectory — binary-content guard (issue #18)', () => {
+// JPEG scans saved with the wrong extension. The walker must skip such files
+// cleanly (reason `binary`), not fail the run — and must do so by magic-byte
+// detection so legacy-encoded text files with a high byte in the head aren't
+// false-positive-dropped (issue #20, fixing the over-skip from issue #18).
+describe('ingestDirectory — binary-content guard (issues #18 / #20)', () => {
   const jfifBytes = Buffer.from([
     0xff, 0xd8, 0xff, 0xe0, 0x00, 0x10, 0x4a, 0x46, 0x49, 0x46, 0x00, 0x01,
     0x01, 0x00, 0x00, 0x48, 0x00, 0x48, 0x00, 0x00,
   ]);
+  const gifBytes = Buffer.concat([
+    Buffer.from('GIF89a'),
+    Buffer.from([0x01, 0x00, 0x01, 0x00, 0x80, 0x00, 0x00]),
+  ]);
+  const pngBytes = Buffer.from([
+    0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a,
+    0x00, 0x00, 0x00, 0x0d,
+  ]);
+  const pdfBytes = Buffer.from('%PDF-1.4\n%\xff\xff\xff\n');
 
   it('skips a binary .html file with reason `binary` instead of failing the run', async () => {
     const root = makeTmpCorpus();
@@ -312,6 +322,126 @@ describe('ingestDirectory — binary-content guard (issue #18)', () => {
       result.plan.skipped.filter((s) => s.reason === 'binary'),
     ).toHaveLength(1);
     expect(formatDryRunSummary(result.plan)).toMatch(/binary: 1/);
+  });
+
+  it('also skips GIF/PNG/PDF magic-byte content saved with a .html suffix', async () => {
+    const root = makeTmpCorpus();
+    writeFileSync(join(root, 'figure-gif.html'), gifBytes);
+    writeFileSync(join(root, 'figure-png.html'), pngBytes);
+    writeFileSync(join(root, 'figure-pdf.html'), pdfBytes);
+    writeFile(root, 'real.html', longHtml('Real'));
+
+    const provider = new FakeIngestProvider((input: DistilInput) => [
+      { claim: `claim for ${input.title}.`, quote: 'sentence one is here' },
+    ]);
+    const repository = new InMemoryRepository();
+
+    const result = await ingestDirectory(root, { provider, repository });
+
+    expect(result.bulk!.failed).toEqual([]);
+    expect(result.bulk!.completed).toHaveLength(1);
+    expect(
+      result.plan.skipped.filter((s) => s.reason === 'binary'),
+    ).toHaveLength(3);
+  });
+});
+
+// The corpus is 1990s/2000s Windows-1252 / Latin-1. A single legacy byte (0x85,
+// 0x92, 0xA0…) used to flag a complete scripture chapter as `binary` and drop
+// it. The new contract: detect binary by magic bytes, transcode legacy text
+// to UTF-8 via Windows-1252 fallback, then ingest. Genesis-01/05/10/11 are no
+// longer dropped, and the verdict no longer depends on where the first high
+// byte falls inside the 8 KiB sample window.
+describe('ingestDirectory — encoding-aware ingest (issue #20)', () => {
+  function legacyHtml(heading: string, bodyPrefix = ''): Buffer {
+    // Windows-1252 bytes only: 0x85 (curly ellipsis), 0x92 (curly apostrophe),
+    // 0xA0 (nbsp). Wrapped in long enough prose to clear the near-empty guard.
+    const ascii = `<html><head><title>${heading}</title></head><body>`
+      + `<h1>${heading}</h1><p>${bodyPrefix}`;
+    const legacyBody = 'so they said it would happen ' // ASCII
+      .repeat(20);
+    const tail = '</p></body></html>';
+    return Buffer.concat([
+      Buffer.from(ascii, 'utf8'),
+      Buffer.from(legacyBody, 'utf8'),
+      // Windows-1252 punctuation: …, ’, nbsp
+      Buffer.from([0x85, 0x20, 0x74, 0x68, 0x65, 0x79, 0x92, 0x76, 0x65, 0xa0, 0x67, 0x6f, 0x6e, 0x65, 0x2e]),
+      Buffer.from(tail, 'utf8'),
+    ]);
+  }
+
+  it('ingests a Windows-1252 chapter instead of dropping it as binary', async () => {
+    const root = makeTmpCorpus();
+    writeFileSync(join(root, 'Genesis-01.html'), legacyHtml('Genesis 1'));
+
+    const distilInputs: DistilInput[] = [];
+    const provider = new FakeIngestProvider((input: DistilInput) => {
+      distilInputs.push(input);
+      return [{ claim: `claim for ${input.title}.`, quote: 'so they said it would happen' }];
+    });
+    const repository = new InMemoryRepository();
+
+    const result = await ingestDirectory(root, { provider, repository });
+
+    expect(result.bulk!.failed).toEqual([]);
+    expect(result.bulk!.completed).toHaveLength(1);
+    expect(result.plan.skipped.filter((s) => s.reason === 'binary')).toEqual([]);
+
+    // Distil saw clean UTF-8: the curly ellipsis, curly apostrophe, and nbsp
+    // are properly decoded rather than appearing as U+FFFD replacements.
+    expect(distilInputs).toHaveLength(1);
+    expect(distilInputs[0]!.text).toContain('…');
+    expect(distilInputs[0]!.text).toContain('’');
+    expect(distilInputs[0]!.text.includes('�')).toBe(false);
+  });
+
+  it("verdict does not depend on where the first high byte lands (no 8 KiB-window inconsistency)", async () => {
+    // Genesis-01 had its first 0x85 inside 8 KiB → dropped under the old
+    // rule. Genesis-08 had its first 0x85 past 8 KiB → silently slipped
+    // through and was later mojibaked. The fix: both ingest cleanly.
+    const root = makeTmpCorpus();
+    writeFileSync(join(root, 'Genesis-01.html'), legacyHtml('Genesis 1'));
+    // Pad with a long ASCII prefix so the first high byte lands well past 8 KiB.
+    const longPrefix = 'verse goes here. '.repeat(600);
+    writeFileSync(join(root, 'Genesis-08.html'), legacyHtml('Genesis 8', longPrefix));
+
+    const provider = new FakeIngestProvider((input: DistilInput) => [
+      { claim: `claim for ${input.title}.`, quote: 'so they said it would happen' },
+    ]);
+    const repository = new InMemoryRepository();
+
+    const result = await ingestDirectory(root, { provider, repository });
+
+    expect(result.bulk!.failed).toEqual([]);
+    expect(result.bulk!.completed).toHaveLength(2);
+    expect(result.plan.skipped.filter((s) => s.reason === 'binary')).toEqual([]);
+  });
+
+  it('still skips magic-byte image content even when the .html duplicate sits next to legacy text', async () => {
+    // Corpus pattern: `Image404.gif` saved alongside an `Image404.html`
+    // duplicate of the same JFIF bytes. The image must skip; the real
+    // legacy chapter must ingest. Both decisions are independent of the
+    // 8 KiB sample position.
+    const jfif = Buffer.from([
+      0xff, 0xd8, 0xff, 0xe0, 0x00, 0x10, 0x4a, 0x46, 0x49, 0x46, 0x00, 0x01,
+      0x01, 0x00, 0x00, 0x48, 0x00, 0x48, 0x00, 0x00,
+    ]);
+    const root = makeTmpCorpus();
+    writeFileSync(join(root, 'Image404.html'), jfif);
+    writeFileSync(join(root, 'Genesis-05.html'), legacyHtml('Genesis 5'));
+
+    const provider = new FakeIngestProvider((input: DistilInput) => [
+      { claim: `claim for ${input.title}.`, quote: 'so they said it would happen' },
+    ]);
+    const repository = new InMemoryRepository();
+
+    const result = await ingestDirectory(root, { provider, repository });
+
+    expect(result.bulk!.failed).toEqual([]);
+    expect(result.bulk!.completed).toHaveLength(1);
+    const binarySkips = result.plan.skipped.filter((s) => s.reason === 'binary');
+    expect(binarySkips).toHaveLength(1);
+    expect(binarySkips[0]!.path).toMatch(/Image404\.html$/);
   });
 });
 

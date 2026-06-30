@@ -44,6 +44,7 @@ import {
 } from '../canon/seen-text-store';
 import type { SourceKind } from '../canon/types';
 import { isLikelyBinary } from './binary-guard';
+import { decodeLegacyText } from './decode-legacy-text';
 import { deriveHtmlSourcePathId } from './derive-path-source-id';
 import { htmlToText } from './html-to-text';
 import { ingestHtml } from './ingest-html';
@@ -186,15 +187,18 @@ export async function ingestDirectory(
       }
     }
 
-    // Read as raw bytes so the binary guard (issue #18) can refuse JPEG /
+    // Read as raw bytes so the binary guard (issues #18/#20) can refuse JPEG /
     // scanned-image content saved with a `.html` suffix BEFORE decode. NUL
     // bytes survive utf-8 conversion and would later crash the Source insert.
+    // Decode is encoding-aware (issue #20): strict UTF-8 with a Windows-1252
+    // fallback, so legacy chapters whose only "binary" signal was a high
+    // byte like 0x85 transcode cleanly to UTF-8 instead of being dropped.
     const buffer = readFileSync(path);
     if (isLikelyBinary(buffer)) {
       binarySkips.push({ path, reason: 'binary' });
       continue;
     }
-    const { text } = htmlToText(buffer.toString('utf8'));
+    const { text } = htmlToText(decodeLegacyText(buffer));
     planInputs.push({ path, cleanedText: text });
   }
   const initialPlan = planJobs(planInputs);
@@ -248,7 +252,9 @@ export async function ingestDirectory(
         // raw markup so the metadata deriver can read `<title>` / `<h1>`
         // and the extractor can re-compute headings. Re-reading is cheap
         // relative to a distil call and keeps the planner contract small.
-        const html = readFileSync(job.path, 'utf8');
+        // Decode is encoding-aware (issue #20) so legacy Windows-1252 bytes
+        // reach the deriver as proper UTF-8, not U+FFFD garbage.
+        const html = decodeLegacyText(readFileSync(job.path));
         const { result } = await ingestHtml(
           {
             html,
