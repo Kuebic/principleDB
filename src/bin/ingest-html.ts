@@ -15,9 +15,7 @@ import { HTMLElement, parse } from 'node-html-parser';
 import type { CanonRepository, IngestProvider } from '../canon/ports';
 import type { SourceKind } from '../canon/types';
 import { htmlToText } from './html-to-text';
-import { ingestText, type IngestTextOutcome } from './ingest-text';
-
-const SOURCE_KINDS: readonly SourceKind[] = ['sermon', 'book', 'article', 'transcript'];
+import { ingestText, parseIngestArgs, type IngestArgs, type IngestTextOutcome } from './ingest-text';
 
 export interface HtmlSourceInput {
   html: string;
@@ -58,51 +56,13 @@ export function humanizeFilename(name: string): string {
   return stem.replace(/[._-]+/g, ' ').replace(/\s+/g, ' ').trim();
 }
 
-export interface IngestHtmlArgs {
-  file: string;
-  title?: string;
-  author?: string;
-  kind?: SourceKind;
-  date?: string;
-}
+const HTML_INGEST_USAGE =
+  'usage: principledb-ingest-html <file.html> [--title T] [--author A] [--kind K] [--date D]';
 
-// Parse the `principledb-ingest-html` CLI argv (everything after the script name):
-//   <file> [--title T] [--author A] [--kind sermon|book|article|transcript] [--date D]
-// Pure so flag handling is unit-tested without spawning a process.
-export function parseIngestHtmlArgs(argv: string[]): IngestHtmlArgs {
-  const flags: Record<string, string> = {};
-  const positional: string[] = [];
-  for (let i = 0; i < argv.length; i++) {
-    const arg = argv[i]!;
-    if (arg.startsWith('--')) {
-      const key = arg.slice(2);
-      const value = argv[++i];
-      if (value === undefined) throw new Error(`flag --${key} needs a value`);
-      flags[key] = value;
-    } else {
-      positional.push(arg);
-    }
-  }
-
-  const file = positional[0];
-  if (!file) {
-    throw new Error(
-      'usage: principledb-ingest-html <file.html> [--title T] [--author A] [--kind K] [--date D]',
-    );
-  }
-
-  const kind = flags.kind;
-  if (kind !== undefined && !SOURCE_KINDS.includes(kind as SourceKind)) {
-    throw new Error(`--kind must be one of ${SOURCE_KINDS.join(', ')} (got "${kind}")`);
-  }
-
-  return {
-    file,
-    ...(flags.title !== undefined ? { title: flags.title } : {}),
-    ...(flags.author !== undefined ? { author: flags.author } : {}),
-    ...(kind !== undefined ? { kind: kind as SourceKind } : {}),
-    ...(flags.date !== undefined ? { date: flags.date } : {}),
-  };
+// Same argv shape as the text ingest (file + --title/--author/--kind/--date);
+// only the usage string differs, so the HTML CLI just rebinds the shared parser.
+export function parseIngestHtmlArgs(argv: string[]): IngestArgs {
+  return parseIngestArgs(argv, HTML_INGEST_USAGE);
 }
 
 export async function ingestHtml(
