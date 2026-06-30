@@ -156,6 +156,56 @@ describe('conservative dedup at ingest', () => {
     expect(consulted).toBe(0);
   });
 
+  it('mints dedup_decision IDs from (principleIndex, candidateIndex) so re-ingest is byte-identical (#22, ADR-0008)', async () => {
+    // Three claims in Source B all hit Source A's seeded Principle above the
+    // prefilter threshold — two are confirmed `same` (merge), one is `kept-separate`.
+    // Re-ingesting Source B under the same provenance must produce the exact
+    // same decision rows: same IDs, same order, same verdicts. The IDs must be
+    // derivable from (principleIdx, candidateIdx) alone — no shared counter.
+    const repository = new InMemoryRepository();
+    const seed = new FakeIngestProvider(
+      () => [{ claim: 'Grace precedes obedience.', quote: 'Grace precedes obedience.' }],
+    );
+    await ingestSource(sermonA, { provider: seed, repository });
+
+    const verdictScript = (a: string, _b: string) =>
+      a.startsWith('keep:')
+        ? { same: false, rationale: 'distinct framing' as const }
+        : { same: true, rationale: 'identical claim wording' as const };
+
+    const mkProviderB = () =>
+      new FakeIngestProvider(
+        () => [
+          { claim: 'keep: Grace and obedience are linked.', quote: 'Distinct framing about grace and obedience comes next.' },
+          { claim: 'Grace precedes obedience.', quote: 'Grace precedes obedience here too.' },
+        ],
+        undefined,
+        undefined,
+        verdictScript,
+      );
+
+    await ingestSource(sermonB, { provider: mkProviderB(), repository });
+    const first = [...repository.dedupDecisions()].filter((d) => d.sourceId === 'sermB');
+
+    // IDs are derived purely from (principleIdx, candidateIdx) — no shared
+    // mutable counter. The first principle's first (and only) candidate gets
+    // d0_0 (`kept-separate`); the second principle's first candidate gets
+    // d1_0 (`merged`).
+    expect(first).toHaveLength(2);
+    expect(first[0]!.id).toMatch(/#d0_0$/);
+    expect(first[1]!.id).toMatch(/#d1_0$/);
+    expect(first.map((d) => d.verdict)).toEqual(['kept-separate', 'merged']);
+
+    // Re-ingest under the same provenance — slot is replaced, decisions rewritten.
+    await ingestSource(sermonB, { provider: mkProviderB(), repository });
+    const second = [...repository.dedupDecisions()].filter((d) => d.sourceId === 'sermB');
+
+    expect(second).toHaveLength(first.length);
+    expect(second.map((d) => d.id)).toEqual(first.map((d) => d.id));
+    expect(second.map((d) => d.verdict)).toEqual(first.map((d) => d.verdict));
+    expect(second.map((d) => d.rationale)).toEqual(first.map((d) => d.rationale));
+  });
+
   it('does not consult the LLM when nothing in the Canon is above the prefilter threshold', async () => {
     const repository = new InMemoryRepository();
     let consulted = 0;

@@ -57,15 +57,21 @@ export async function dedup(
   const freshPrinciples: Principle[] = [];
   const attachedQuotes: LocatedQuote[] = [];
   const decisions: DedupDecision[] = [];
-  let decisionIdx = 0;
 
+  // Decision IDs are derived purely from (principleIdx, candidateIdx) — no
+  // shared mutable counter. Mirrors the already-safe `aq${idx}` attached-quote
+  // ID scheme and keeps ADR-0008 idempotency intact once confirms run in
+  // parallel (#23): the same (principle, candidate) position always mints the
+  // same ID regardless of completion order.
   const buildDecision = (
+    principleIdx: number,
+    candidateIdx: number,
     candidate: SearchHit,
     candidateClaim: string,
     verdict: DedupDecision['verdict'],
     rationale: string,
   ): DedupDecision => ({
-    id: `${source.id}#${tag}#d${decisionIdx++}`,
+    id: `${source.id}#${tag}#d${principleIdx}_${candidateIdx}`,
     sourceId: source.id,
     candidateClaim,
     existingPrincipleId: candidate.principle.id,
@@ -91,13 +97,13 @@ export async function dedup(
     }
 
     let merged = false;
-    for (const candidate of candidates) {
+    for (const [cidx, candidate] of candidates.entries()) {
       const verdict = await ctx.provider.confirmSameClaim(
         principle.claim,
         candidate.principle.claim,
       );
       if (!verdict.same) {
-        decisions.push(buildDecision(candidate, principle.claim, 'kept-separate', verdict.rationale));
+        decisions.push(buildDecision(idx, cidx, candidate, principle.claim, 'kept-separate', verdict.rationale));
         continue;
       }
       // Attach this source's Quote to the existing Principle. The Quote ID
@@ -111,7 +117,7 @@ export async function dedup(
         id: `${source.id}#${tag}#aq${idx}`,
         principleId: candidate.principle.id,
       });
-      decisions.push(buildDecision(candidate, principle.claim, 'merged', verdict.rationale));
+      decisions.push(buildDecision(idx, cidx, candidate, principle.claim, 'merged', verdict.rationale));
       merged = true;
       break;
     }
