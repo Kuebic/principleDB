@@ -84,11 +84,18 @@ model for its job (ADR-0011):
   **`claude-opus-4-8`**. Override with `PRINCIPLEDB_DISTIL_MODEL=<any Claude
   model id>` to trade fidelity for cost. Key from
   <https://console.anthropic.com>. A Claude Code subscription token
-  (`CLAUDE_CODE_OAUTH_TOKEN`) also works in place of the API key — but it shares
-  one Opus rate bucket with your live Claude Code session, so a distil call can
-  hit transient `429`s. Bump `PRINCIPLEDB_MAX_RETRIES=<n>` (SDK default 2) to
-  ride out the bursts. (A pay-as-you-go `ANTHROPIC_API_KEY` sits on a separate
-  bucket and sidesteps this — it takes priority when both are set.)
+  (`CLAUDE_CODE_OAUTH_TOKEN`) also works in place of the API key, **but only
+  reaches Haiku over the API**: direct API calls to `claude-opus-4-8` /
+  `claude-sonnet-4-6` on a subscription token return an immediate
+  `rate_limit_error` — an entitlement gate, not real throttling (the 429 carries
+  no `retry-after` / `anthropic-ratelimit-*` headers), so `PRINCIPLEDB_MAX_RETRIES`
+  cannot ride it out. On a subscription token, set
+  `PRINCIPLEDB_DISTIL_MODEL=claude-haiku-4-5` (the confirm model already defaults
+  to Haiku). For Opus/Sonnet-quality ingest over the API, use a pay-as-you-go
+  `ANTHROPIC_API_KEY` (it takes priority when both are set); a genuine transient
+  `429` under load is still rideable via `PRINCIPLEDB_MAX_RETRIES=<n>` (SDK
+  default 2). Opus/Sonnet *are* reachable on the subscription through the Claude
+  Code agent runtime, but that is a separate path from this direct-API ingest.
   - **Dedup confirm model.** The dedup "same claim?" judgment runs on a
     separate, cheaper model by default: **`claude-haiku-4-5`**. It is a
     narrow binary judgment with a 512-token cap, so the Opus premium is not
