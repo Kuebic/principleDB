@@ -29,6 +29,7 @@ import {
   parseIngestDirArgs,
 } from '../src/bin/ingest-dir';
 import { PostgresBulkProgressStore } from '../src/db/postgres-bulk-progress-store';
+import { PostgresSeenTextStore } from '../src/db/postgres-seen-text-store';
 
 // Default to Haiku for directory walks. The single-file `ingest:html` /
 // `ingest:text` paths keep Opus as their default (already wired through
@@ -43,11 +44,13 @@ async function main(): Promise<void> {
   const env: BuildDepsEnv = { ...process.env, PRINCIPLEDB_DISTIL_MODEL: resolveModel(args.model) };
   const { deps, pool, close } = buildPrincipleDbDepsFromEnv(env);
   try {
-    // Reuse the same Postgres pool for the durable progress store so the
-    // walker doesn't open a second connection pool just to record progress.
+    // Reuse the same Postgres pool for the durable progress + dedup stores
+    // so the walker doesn't open extra connection pools just to record state.
     const progress = new PostgresBulkProgressStore(pool, { phase: 'ingest:dir' });
+    const seenText = new PostgresSeenTextStore(pool);
     const result = await ingestDirectory(args.path, deps, {
       progress,
+      seenText,
       ...(args.dryRun !== undefined ? { dryRun: args.dryRun } : {}),
       ...(args.limit !== undefined ? { limit: args.limit } : {}),
       ...(args.kind !== undefined ? { kind: args.kind } : {}),

@@ -37,6 +37,11 @@ import {
   type BulkIngestResult,
 } from '../canon/bulk-ingest';
 import type { CanonRepository, IngestProvider } from '../canon/ports';
+import {
+  InMemorySeenTextStore,
+  normalizedTextHash,
+  type SeenTextStore,
+} from '../canon/seen-text-store';
 import type { SourceKind } from '../canon/types';
 import { deriveHtmlSourcePathId } from './derive-path-source-id';
 import { htmlToText } from './html-to-text';
@@ -44,6 +49,7 @@ import { ingestHtml } from './ingest-html';
 import {
   planJobs,
   type JobPlan,
+  type PlannedJob,
   type PlanInput,
   type SkippedFile,
 } from './plan-jobs';
@@ -127,6 +133,13 @@ export interface IngestDirectoryOptions {
   // when `DATABASE_URL` is present; tests inject the in-memory impl.
   // Omitted ⇒ a fresh `InMemoryBulkProgressStore` is used for this run.
   progress?: BulkProgressStore;
+  // Normalized-text near-dupe cache (issue #16). The bin wires
+  // `PostgresSeenTextStore`; tests pass an in-memory store (or omit it to
+  // get a fresh in-memory one per call). Consulted BEFORE distil so
+  // whitespace-variant captures of the same document skip the distil call;
+  // recorded AFTER ingest succeeds so a crash mid-distil never leaves an
+  // orphan hash that would later silently skip the file without ingesting.
+  seenText?: SeenTextStore;
 }
 
 export interface IngestDirectoryResult {
@@ -142,6 +155,7 @@ export async function ingestDirectory(
   options: IngestDirectoryOptions = {},
 ): Promise<IngestDirectoryResult> {
   const progress = options.progress ?? new InMemoryBulkProgressStore();
+  const seenText = options.seenText ?? new InMemorySeenTextStore();
   const isDryRun = options.dryRun === true;
 
   // Walk paths and consult the progress store BEFORE reading any HTML —
@@ -174,7 +188,31 @@ export async function ingestDirectory(
     const { text } = htmlToText(html);
     planInputs.push({ path, cleanedText: text });
   }
-  const plan = planJobs(planInputs);
+  const initialPlan = planJobs(planInputs);
+
+  // Normalized-text near-dupe pre-pass (issue #16). Run AFTER `planJobs` so
+  // we never spend a hash on files that path-/content-policy filters would
+  // have dropped anyway. Apply both an intra-batch Set (catches duplicate
+  // pairs within this single run, before any record() lands in the store)
+  // and the persistent SeenTextStore (catches resume / cross-run dupes).
+  const intraBatchSeen = new Set<string>();
+  const hashByPath = new Map<string, string>();
+  const keptJobs: PlannedJob[] = [];
+  const duplicateSkips: SkippedFile[] = [];
+  for (const job of initialPlan.jobs) {
+    const hash = normalizedTextHash(job.cleanedText);
+    if (intraBatchSeen.has(hash) || (await seenText.seen(hash))) {
+      duplicateSkips.push({ path: job.path, reason: 'normalized-duplicate' });
+      continue;
+    }
+    intraBatchSeen.add(hash);
+    hashByPath.set(job.path, hash);
+    keptJobs.push(job);
+  }
+  const plan: JobPlan = {
+    jobs: keptJobs,
+    skipped: [...initialPlan.skipped, ...duplicateSkips],
+  };
 
   if (isDryRun) {
     return { dryRun: true, plan, bulk: null };
@@ -185,9 +223,13 @@ export async function ingestDirectory(
       ? plan.jobs.slice(0, options.limit)
       : plan.jobs;
 
+  // Build the per-job structure once so we can map sourceId → path
+  // (needed for the hash record post-loop) without re-deriving the id.
+  const sourceIdByJob = new Map<string, string>();
   const plannedJobs = limited.map((job) => {
     const relPath = repoRelativePath(rootPath, job.path);
     const sourceId = deriveHtmlSourcePathId(relPath);
+    sourceIdByJob.set(sourceId, job.path);
     return {
       sourceId,
       ingest: async () => {
@@ -215,6 +257,21 @@ export async function ingestDirectory(
   // them through `bulkIngest` would force a second `progress.has()` round-
   // trip per Source — on a 100k-file resume that's ~99k redundant queries.
   const bulk = await bulkIngest(plannedJobs, progress);
+
+  // Record hashes for successfully ingested Sources AFTER `bulkIngest`
+  // returns. Doing it post-success means a crash mid-distil never leaves a
+  // recorded hash for a Source that never reached the Canon, which would
+  // later make the walker silently skip its re-ingest. A crash between
+  // mark-done and hash-record is harmless: on resume the file is path-id-
+  // skipped without reading; a different path with the same text just
+  // re-pays a single distil call.
+  for (const success of bulk.completed) {
+    const path = sourceIdByJob.get(success.sourceId);
+    if (path === undefined) continue;
+    const hash = hashByPath.get(path);
+    if (hash !== undefined) await seenText.record(hash);
+  }
+
   return {
     dryRun: false,
     plan,

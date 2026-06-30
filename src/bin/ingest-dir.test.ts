@@ -8,6 +8,7 @@ import { InMemoryBulkProgressStore } from '../canon/bulk-ingest';
 import { FakeIngestProvider } from '../canon/fake-provider';
 import { InMemoryRepository } from '../canon/in-memory-repository';
 import type { DistilInput } from '../canon/ports';
+import { InMemorySeenTextStore } from '../canon/seen-text-store';
 import { deriveHtmlSourcePathId } from './derive-path-source-id';
 import {
   formatDryRunSummary,
@@ -243,6 +244,181 @@ describe('ingestDirectory — resume', () => {
     const first = await ingestDirectory(root, { provider, repository });
     const second = await ingestDirectory(root, { provider, repository });
     expect(first.bulk!.completed).toHaveLength(1);
+    expect(second.bulk!.completed).toHaveLength(1);
+  });
+});
+
+// Whitespace-variant captures of the same document differ only in markup
+// formatting. The PRD-defined dedup pre-pass collapses them onto a single
+// normalized hash so the second capture skips distil entirely. Partial-vs-full
+// captures (genuinely different text) must still BOTH ingest — semantic
+// dedup runs at admission, not here.
+const wsVariantA = (heading: string): string =>
+  `<html><head><title>${heading}</title></head><body>` +
+  `<h1>${heading}</h1><p>` +
+  'this teaching is the foundation of all that follows in the divine plan. '.repeat(20) +
+  `</p></body></html>`;
+const wsVariantB = (heading: string): string =>
+  `<html><body><h1>${heading}</h1>\n\n   <p>\n  ` +
+  'this teaching is the foundation of all that follows in the divine plan.  '.repeat(20) +
+  `\n  </p>\n</body></html>`;
+
+describe('ingestDirectory — normalized-text dedup pre-pass (issue #16)', () => {
+  it('distils only the first of two whitespace-variant captures (intra-batch)', async () => {
+    const root = makeTmpCorpus();
+    writeFile(root, 'Talks/Doc-200101.html', wsVariantA('On Grace'));
+    writeFile(root, 'Talks/Doc-200101-mirror.html', wsVariantB('On Grace'));
+
+    let distilCalls = 0;
+    const provider = new FakeIngestProvider((input: DistilInput) => {
+      distilCalls += 1;
+      return [{ claim: `claim for ${input.title}.`, quote: 'this teaching is the foundation' }];
+    });
+    const repository = new InMemoryRepository();
+    const seenText = new InMemorySeenTextStore();
+
+    const result = await ingestDirectory(
+      root,
+      { provider, repository },
+      { seenText },
+    );
+
+    expect(distilCalls).toBe(1);
+    expect(result.bulk!.completed).toHaveLength(1);
+    const skipReasons = result.plan.skipped.map((s) => s.reason);
+    expect(skipReasons).toContain('normalized-duplicate');
+    expect(skipReasons.filter((r) => r === 'normalized-duplicate')).toHaveLength(1);
+  });
+
+  it('skips whitespace-variant captures across runs via a persistent SeenTextStore', async () => {
+    const root = makeTmpCorpus();
+    writeFile(root, 'Talks/Doc-200101.html', wsVariantA('On Grace'));
+
+    let distilCalls = 0;
+    const provider = new FakeIngestProvider((input: DistilInput) => {
+      distilCalls += 1;
+      return [{ claim: `claim for ${input.title}.`, quote: 'this teaching is the foundation' }];
+    });
+    const repository = new InMemoryRepository();
+    const seenText = new InMemorySeenTextStore();
+
+    // First run ingests and records the hash.
+    const first = await ingestDirectory(
+      root,
+      { provider, repository },
+      { seenText },
+    );
+    expect(first.bulk!.completed).toHaveLength(1);
+    expect(distilCalls).toBe(1);
+
+    // Second run on a NEW path with whitespace-variant text — the SeenTextStore
+    // carries the hash forward, so distil is not called again.
+    writeFile(root, 'Talks/Doc-200101-mirror.html', wsVariantB('On Grace'));
+    const second = await ingestDirectory(
+      root,
+      { provider, repository },
+      { seenText },
+    );
+
+    expect(distilCalls).toBe(1);
+    expect(second.bulk!.completed).toHaveLength(0);
+    expect(second.plan.skipped.some((s) => s.reason === 'normalized-duplicate')).toBe(true);
+  });
+
+  it('ingests BOTH a partial and a full capture (different text → different hash)', async () => {
+    const root = makeTmpCorpus();
+    const fullHtml =
+      `<html><body><h1>Full</h1><p>` +
+      'this teaching is the foundation of all that follows in the divine plan. '.repeat(20) +
+      `</p></body></html>`;
+    const partialHtml =
+      `<html><body><h1>Partial</h1><p>` +
+      'this teaching is the foundation of all that follows. '.repeat(20) +
+      `</p></body></html>`;
+    writeFile(root, 'Talks/Doc-full.html', fullHtml);
+    writeFile(root, 'Talks/Doc-partial.html', partialHtml);
+
+    let distilCalls = 0;
+    const provider = new FakeIngestProvider((input: DistilInput) => {
+      distilCalls += 1;
+      return [{ claim: `claim for ${input.title}.`, quote: 'this teaching is the foundation' }];
+    });
+    const repository = new InMemoryRepository();
+    const seenText = new InMemorySeenTextStore();
+
+    const result = await ingestDirectory(
+      root,
+      { provider, repository },
+      { seenText },
+    );
+
+    expect(distilCalls).toBe(2);
+    expect(result.bulk!.completed).toHaveLength(2);
+    expect(result.plan.skipped.some((s) => s.reason === 'normalized-duplicate')).toBe(false);
+  });
+
+  it('dry-run reports the normalized-duplicate skip count (intra-batch)', async () => {
+    const root = makeTmpCorpus();
+    writeFile(root, 'Talks/Doc-200101.html', wsVariantA('On Grace'));
+    writeFile(root, 'Talks/Doc-200101-mirror.html', wsVariantB('On Grace'));
+
+    let distilCalls = 0;
+    const provider = new FakeIngestProvider((input: DistilInput) => {
+      distilCalls += 1;
+      return [];
+    });
+    const repository = new InMemoryRepository();
+    const seenText = new InMemorySeenTextStore();
+
+    const result = await ingestDirectory(
+      root,
+      { provider, repository },
+      { dryRun: true, seenText },
+    );
+
+    expect(distilCalls).toBe(0);
+    expect(result.dryRun).toBe(true);
+    expect(result.plan.jobs).toHaveLength(1);
+    expect(
+      result.plan.skipped.filter((s) => s.reason === 'normalized-duplicate'),
+    ).toHaveLength(1);
+
+    const summary = formatDryRunSummary(result.plan);
+    expect(summary).toMatch(/normalized-duplicate: 1/);
+  });
+
+  it('does not record hashes for failed ingests (a later re-run still attempts the file)', async () => {
+    const root = makeTmpCorpus();
+    writeFile(root, 'Talks/Doc-200101.html', wsVariantA('On Grace'));
+
+    let distilCalls = 0;
+    let shouldFail = true;
+    const provider = new FakeIngestProvider((input: DistilInput) => {
+      distilCalls += 1;
+      if (shouldFail) throw new Error('simulated distil failure');
+      return [{ claim: `claim for ${input.title}.`, quote: 'this teaching is the foundation' }];
+    });
+    const repository = new InMemoryRepository();
+    const seenText = new InMemorySeenTextStore();
+
+    const first = await ingestDirectory(
+      root,
+      { provider, repository },
+      { seenText },
+    );
+    expect(first.bulk!.completed).toHaveLength(0);
+    expect(first.bulk!.failed).toHaveLength(1);
+
+    // Same file, retried — hash was NOT recorded after the failure, so distil
+    // runs again. (Sanity-checks: missing the optimization on failure means
+    // we never silently swallow a file that never reached the Canon.)
+    shouldFail = false;
+    const second = await ingestDirectory(
+      root,
+      { provider, repository },
+      { seenText },
+    );
+    expect(distilCalls).toBe(2);
     expect(second.bulk!.completed).toHaveLength(1);
   });
 });

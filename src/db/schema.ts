@@ -127,3 +127,18 @@ export const bulkProgress = pgTable(
     pk: primaryKey({ columns: [t.phase, t.sourceId] }),
   }),
 );
+
+// Normalized-text near-dupe guard (issue #16, PRD #11). One row per normalized
+// hash the dir walker has admitted, used as a pre-distil cache so whitespace-
+// variant mirror captures of the same document skip distil instead of paying
+// for it. Backs `PostgresSeenTextStore`, which implements the `SeenTextStore`
+// port; the port stays separate from `BulkProgressStore` so the three dedup
+// layers of PRD #11 stay distinct (ADR-0008 slot / this pre-pass / ADR-0012
+// semantic dedup).
+//
+// No FK to `source`: a recorded hash is a content-fingerprint cache, not a
+// pointer to a specific Source — the same normalized text could re-enter the
+// pipeline under a different path / id and should still hit the cache.
+export const seenText = pgTable('seen_text', {
+  hash: text('hash').primaryKey(),
+});
