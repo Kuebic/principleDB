@@ -104,17 +104,16 @@ export async function dedup(
   );
   const tag = provenanceTag(provenance);
 
+  // Captured once and stamped on every decision (#24, PRD #21). See
+  // `IngestProvider.confirmModel` in ports.ts for why it stays outside the
+  // (sourceId, provenance) slot key.
+  const confirmModel = ctx.provider.confirmModel;
+
   // Decision IDs are derived purely from (principleIdx, candidateIdx) — no
   // shared mutable counter. Mirrors the already-safe `aq${idx}` attached-quote
   // ID scheme and keeps ADR-0008 idempotency intact under concurrency (#23):
   // the same (principle, candidate) position always mints the same ID
   // regardless of completion order in the worker pool.
-  // The confirm model is stamped on every row from the provider's
-  // `confirmModel` (issue #24, PRD #21). It is NOT part of the slot key —
-  // the (sourceId, provenance) tuple still owns idempotency — but it rides
-  // along on every decision so the audit log stays honest in a
-  // model-mixed Canon.
-  const confirmModel = ctx.provider.confirmModel;
   const buildDecision = (
     principleIdx: number,
     candidateIdx: number,
