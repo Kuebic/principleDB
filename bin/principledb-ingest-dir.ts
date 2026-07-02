@@ -52,12 +52,7 @@ async function main(): Promise<void> {
     // Phase B (issue #31) marks under `ingest:dir:dedup` and drains staging.
     // Single-phase runs keep the historical `ingest:dir` phase label so an
     // existing durable progress row is not orphaned.
-    const progressPhase =
-      args.phase === 'distil'
-        ? 'ingest:dir:distil'
-        : args.phase === 'dedup'
-          ? 'ingest:dir:dedup'
-          : 'ingest:dir';
+    const progressPhase = args.phase ? `ingest:dir:${args.phase}` : 'ingest:dir';
     const progress = new PostgresBulkProgressStore(pool, { phase: progressPhase });
     const seenText = new PostgresSeenTextStore(pool);
     const staging = args.phase === 'distil' ? new PostgresStagingStore(pool) : undefined;
