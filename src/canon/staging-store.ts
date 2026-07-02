@@ -74,15 +74,23 @@ export interface StagingStore {
 
 export class InMemoryStagingStore implements StagingStore {
   // Keyed by `${sourceId}\x00${provenanceKey}` so a Source under two distinct
-  // provenances (e.g. re-distil sweep) stays in separate slots.
-  private readonly entries = new Map<string, StagingPayload>();
+  // provenances (e.g. re-distil sweep) stays in separate slots. The sourceId
+  // is stored alongside the payload so `listStaged` never has to parse it back
+  // out of the composite key.
+  private readonly entries = new Map<
+    string,
+    { sourceId: string; payload: StagingPayload }
+  >();
 
   async stage(
     sourceId: string,
     provenance: DistilProvenance,
     payload: StagingPayload,
   ): Promise<void> {
-    this.entries.set(keyOf(sourceId, provenance), clonePayload(payload));
+    this.entries.set(keyOf(sourceId, provenance), {
+      sourceId,
+      payload: clonePayload(payload),
+    });
   }
 
   async read(
@@ -90,18 +98,14 @@ export class InMemoryStagingStore implements StagingStore {
     provenance: DistilProvenance,
   ): Promise<StagingPayload | null> {
     const found = this.entries.get(keyOf(sourceId, provenance));
-    return found ? clonePayload(found) : null;
+    return found ? clonePayload(found.payload) : null;
   }
 
   async listStaged(): Promise<StagedEntry[]> {
-    const entries: StagedEntry[] = [];
-    for (const [key, payload] of this.entries) {
-      entries.push({
-        sourceId: sourceIdFromKey(key),
-        provenance: { ...payload.provenance },
-      });
-    }
-    return entries;
+    return [...this.entries.values()].map(({ sourceId, payload }) => ({
+      sourceId,
+      provenance: { ...payload.provenance },
+    }));
   }
 
   async delete(sourceId: string, provenance: DistilProvenance): Promise<void> {
@@ -115,10 +119,6 @@ export class InMemoryStagingStore implements StagingStore {
 
 function keyOf(sourceId: string, provenance: DistilProvenance): string {
   return `${sourceId}\x00${provenance.distilModel}\x00${provenance.distilModelVersion}\x00${provenance.distilPromptVersion}`;
-}
-
-function sourceIdFromKey(key: string): string {
-  return key.slice(0, key.indexOf('\x00'));
 }
 
 // Deep-copy the payload on the way in and out so a caller mutating a Principle

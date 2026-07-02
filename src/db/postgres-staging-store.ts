@@ -57,14 +57,7 @@ export class PostgresStagingStore implements StagingStore {
     const rows = await this.db
       .select({ payload: schema.stagedSource.payload })
       .from(schema.stagedSource)
-      .where(
-        and(
-          eq(schema.stagedSource.sourceId, sourceId),
-          eq(schema.stagedSource.distilModel, provenance.distilModel),
-          eq(schema.stagedSource.distilModelVersion, provenance.distilModelVersion),
-          eq(schema.stagedSource.distilPromptVersion, provenance.distilPromptVersion),
-        ),
-      )
+      .where(whereKey(sourceId, provenance))
       .limit(1);
     if (rows.length === 0) return null;
     return rows[0]!.payload as StagingPayload;
@@ -90,15 +83,15 @@ export class PostgresStagingStore implements StagingStore {
   }
 
   async delete(sourceId: string, provenance: DistilProvenance): Promise<void> {
-    await this.db
-      .delete(schema.stagedSource)
-      .where(
-        and(
-          eq(schema.stagedSource.sourceId, sourceId),
-          eq(schema.stagedSource.distilModel, provenance.distilModel),
-          eq(schema.stagedSource.distilModelVersion, provenance.distilModelVersion),
-          eq(schema.stagedSource.distilPromptVersion, provenance.distilPromptVersion),
-        ),
-      );
+    await this.db.delete(schema.stagedSource).where(whereKey(sourceId, provenance));
   }
+}
+
+function whereKey(sourceId: string, provenance: DistilProvenance) {
+  return and(
+    eq(schema.stagedSource.sourceId, sourceId),
+    eq(schema.stagedSource.distilModel, provenance.distilModel),
+    eq(schema.stagedSource.distilModelVersion, provenance.distilModelVersion),
+    eq(schema.stagedSource.distilPromptVersion, provenance.distilPromptVersion),
+  );
 }
