@@ -13,11 +13,12 @@
 // Anthropic deps via `buildPrincipleDbDepsFromEnv`.
 
 import type { CanonRepository, IngestProvider } from '../canon/ports';
-import type { SourceKind, StructureMap } from '../canon/types';
+import type { Source, SourceKind, StructureMap } from '../canon/types';
 import { deriveHtmlSourceMetadata } from './derive-html-metadata';
 import { htmlToText } from './html-to-text';
 import {
   ingestText,
+  makeTextSource,
   parseIngestArgs,
   type IngestArgs,
   type IngestTextOutcome,
@@ -54,6 +55,51 @@ export async function ingestHtml(
   input: HtmlSourceInput,
   deps: { provider: IngestProvider; repository: CanonRepository },
 ): Promise<IngestTextOutcome> {
+  const { title, text, author, kind, date, structureMap } = buildHtmlSourceInput(input);
+  return ingestText(
+    {
+      title,
+      text,
+      author,
+      kind,
+      ...(date !== undefined ? { date } : {}),
+      ...(input.id !== undefined ? { id: input.id } : {}),
+      structureMap,
+    },
+    deps,
+  );
+}
+
+// Shared source builder — the HTML→Source translation used by both the
+// single-file ingest path (`ingestHtml` above, which delegates to `ingestText`)
+// and the Phase A directory walker (issue #30). Phase A calls this + `stageSource`
+// so it can construct the same Source shape without going through the full
+// ingest+persist pipeline. Kept in this file because the HTML-specific derivation
+// (title/author/date fallbacks, structureMap from headings) is HTML-adapter
+// concern, not a Canon-core concern.
+export function buildHtmlSource(input: HtmlSourceInput): Source {
+  const built = buildHtmlSourceInput(input);
+  return makeTextSource({
+    title: built.title,
+    text: built.text,
+    author: built.author,
+    kind: built.kind,
+    ...(built.date !== undefined ? { date: built.date } : {}),
+    ...(input.id !== undefined ? { id: input.id } : {}),
+    structureMap: built.structureMap,
+  });
+}
+
+interface BuiltHtmlSourceInput {
+  title: string;
+  text: string;
+  author: string;
+  kind: SourceKind;
+  date: string | undefined;
+  structureMap: StructureMap;
+}
+
+function buildHtmlSourceInput(input: HtmlSourceInput): BuiltHtmlSourceInput {
   const extracted = htmlToText(input.html);
   const derived = deriveHtmlSourceMetadata({
     path: input.path,
@@ -66,18 +112,12 @@ export async function ingestHtml(
       ? { kind: 'text-headings', headings: extracted.headings }
       : { kind: 'none' };
 
-  const date = input.date ?? derived.date;
-
-  return ingestText(
-    {
-      title: input.title ?? derived.title,
-      text: extracted.text,
-      author: input.author ?? derived.author,
-      kind: derived.kind,
-      ...(date !== undefined ? { date } : {}),
-      ...(input.id !== undefined ? { id: input.id } : {}),
-      structureMap,
-    },
-    deps,
-  );
+  return {
+    title: input.title ?? derived.title,
+    text: extracted.text,
+    author: input.author ?? derived.author,
+    kind: derived.kind,
+    date: input.date ?? derived.date,
+    structureMap,
+  };
 }

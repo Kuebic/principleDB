@@ -32,22 +32,27 @@ import { join, relative, sep } from 'node:path';
 
 import {
   bulkIngest,
+  bulkStage,
   InMemoryBulkProgressStore,
-  type BulkProgressStore,
   type BulkIngestResult,
+  type BulkProgressStore,
+  type BulkStageJob,
+  type BulkStageResult,
 } from '../canon/bulk-ingest';
+import { stageSource } from '../canon/ingest';
 import type { CanonRepository, IngestProvider } from '../canon/ports';
 import {
   InMemorySeenTextStore,
   normalizedTextHash,
   type SeenTextStore,
 } from '../canon/seen-text-store';
+import type { StagingStore } from '../canon/staging-store';
 import type { SourceKind } from '../canon/types';
 import { isLikelyBinary } from './binary-guard';
 import { decodeLegacyText } from './decode-legacy-text';
 import { deriveHtmlSourcePathId } from './derive-path-source-id';
 import { htmlToText } from './html-to-text';
-import { ingestHtml } from './ingest-html';
+import { buildHtmlSource, ingestHtml } from './ingest-html';
 import {
   planJobs,
   type JobPlan,
@@ -58,19 +63,27 @@ import {
 
 export type DistilModelChoice = 'haiku' | 'opus';
 
+// Two-phase seed mode selector (issue #30, PRD #27, ADR-0014). `distil` runs
+// Phase A: parallel distil+admit+embed to staging, no Canon write. `dedup`
+// (issue #31, follow-up) drains staging → dedup → persist. Absent flag ⇒
+// today's single-phase pipeline (unchanged).
+export type IngestDirPhase = 'distil' | 'dedup';
+
 export interface IngestDirArgs {
   path: string;
   kind?: SourceKind;
   limit?: number;
   dryRun?: boolean;
   model?: DistilModelChoice;
+  phase?: IngestDirPhase;
 }
 
 const SOURCE_KINDS: readonly SourceKind[] = ['sermon', 'book', 'article', 'transcript'];
 const DISTIL_MODELS: readonly DistilModelChoice[] = ['haiku', 'opus'];
+const PHASES: readonly IngestDirPhase[] = ['distil', 'dedup'];
 
 const INGEST_DIR_USAGE =
-  'usage: principledb-ingest-dir <path> [--kind K] [--limit N] [--dry-run] [--model haiku|opus]';
+  'usage: principledb-ingest-dir <path> [--kind K] [--limit N] [--dry-run] [--model haiku|opus] [--phase distil|dedup]';
 
 // Same flag style as the single-file CLI parsers (issue #12/#13): `--flag
 // value`, `--dry-run` is a bare boolean toggle. Throws a readable Error on a
@@ -109,6 +122,11 @@ export function parseIngestDirArgs(argv: string[]): IngestDirArgs {
     throw new Error(`--model must be one of ${DISTIL_MODELS.join(', ')} (got "${model}")`);
   }
 
+  const phase = flags.phase;
+  if (phase !== undefined && !PHASES.includes(phase as IngestDirPhase)) {
+    throw new Error(`--phase must be one of ${PHASES.join(', ')} (got "${phase}")`);
+  }
+
   let limit: number | undefined;
   if (flags.limit !== undefined) {
     const n = Number(flags.limit);
@@ -124,6 +142,7 @@ export function parseIngestDirArgs(argv: string[]): IngestDirArgs {
     ...(limit !== undefined ? { limit } : {}),
     ...(booleans.has('dry-run') ? { dryRun: true } : {}),
     ...(model !== undefined ? { model: model as DistilModelChoice } : {}),
+    ...(phase !== undefined ? { phase: phase as IngestDirPhase } : {}),
   };
 }
 
@@ -142,13 +161,25 @@ export interface IngestDirectoryOptions {
   // recorded AFTER ingest succeeds so a crash mid-distil never leaves an
   // orphan hash that would later silently skip the file without ingesting.
   seenText?: SeenTextStore;
+  // Two-phase seed mode (issue #30, PRD #27, ADR-0014). `distil` ⇒ Phase A:
+  // parallel distil+admit+embed to `staging`, no Canon write. Absent ⇒
+  // today's single-phase pipeline. `--phase distil` requires `staging`.
+  phase?: IngestDirPhase;
+  // Canon-invisible staging store used by Phase A. Required when
+  // `phase === 'distil'`; ignored otherwise.
+  staging?: StagingStore;
+  // Worker-pool size for Phase A distil fan-out; forwarded to `bulkStage`.
+  // Default ~30 (Haiku target from ADR-0014 / the #25 spike).
+  stageConcurrency?: number;
 }
 
 export interface IngestDirectoryResult {
   dryRun: boolean;
   plan: JobPlan;
-  // `null` in dry-run mode (no jobs were actually attempted).
-  bulk: BulkIngestResult | null;
+  // `null` in dry-run mode (no jobs were actually attempted). In Phase A mode
+  // this holds the `bulkStage` result under the same shape as `bulkIngest`
+  // (per-source completed / failed / skipped stats are common).
+  bulk: BulkIngestResult | BulkStageResult | null;
 }
 
 export async function ingestDirectory(
@@ -159,6 +190,10 @@ export async function ingestDirectory(
   const progress = options.progress ?? new InMemoryBulkProgressStore();
   const seenText = options.seenText ?? new InMemorySeenTextStore();
   const isDryRun = options.dryRun === true;
+  const phase = options.phase;
+  if (phase === 'distil' && options.staging === undefined) {
+    throw new Error('--phase distil requires a staging store (option `staging`)');
+  }
 
   // Walk paths and consult the progress store BEFORE reading any HTML —
   // already-completed Sources never reach `readFileSync`. This is the cheap-
@@ -239,21 +274,49 @@ export async function ingestDirectory(
   // Index the kept jobs' hashes by sourceId so the post-bulk record loop
   // can look up each completed Source's hash in a single step.
   const hashBySourceId = new Map<string, string>();
-  const plannedJobs = limited.map((job) => {
+  const perSource = limited.map((job) => {
     const relPath = repoRelativePath(rootPath, job.path);
     const sourceId = deriveHtmlSourcePathId(relPath);
     const hash = hashByPath.get(job.path);
     if (hash !== undefined) hashBySourceId.set(sourceId, hash);
-    return {
+    return { job, sourceId };
+  });
+
+  // Phase A of the two-phase seed (issue #30) vs. today's single-phase path.
+  // Both re-read the HTML per-Source: planning kept `cleanedText` for the
+  // near-empty guard, but the metadata deriver / structure-map extractor want
+  // the raw markup. Re-reading is cheap relative to a distil call and keeps
+  // the planner contract small. Decode is encoding-aware (issue #20) so
+  // legacy Windows-1252 bytes reach the deriver as proper UTF-8.
+  let bulk: BulkIngestResult | BulkStageResult;
+  if (phase === 'distil') {
+    const staging = options.staging!;
+    const stageJobs: BulkStageJob[] = perSource.map(({ job, sourceId }) => ({
+      sourceId,
+      stage: async () => {
+        const html = decodeLegacyText(readFileSync(job.path));
+        const source = buildHtmlSource({
+          html,
+          path: job.path,
+          id: sourceId,
+          ...(options.kind !== undefined ? { kind: options.kind } : {}),
+        });
+        return stageSource(source, {
+          provider: deps.provider,
+          repository: deps.repository,
+          staging,
+        });
+      },
+    }));
+    bulk = await bulkStage(stageJobs, progress, {
+      ...(options.stageConcurrency !== undefined
+        ? { concurrency: options.stageConcurrency }
+        : {}),
+    });
+  } else {
+    const plannedJobs = perSource.map(({ job, sourceId }) => ({
       sourceId,
       ingest: async () => {
-        // Re-read the HTML for the surviving job: planning kept
-        // `cleanedText` for the near-empty guard, but `ingestHtml` wants the
-        // raw markup so the metadata deriver can read `<title>` / `<h1>`
-        // and the extractor can re-compute headings. Re-reading is cheap
-        // relative to a distil call and keeps the planner contract small.
-        // Decode is encoding-aware (issue #20) so legacy Windows-1252 bytes
-        // reach the deriver as proper UTF-8, not U+FFFD garbage.
         const html = decodeLegacyText(readFileSync(job.path));
         const { result } = await ingestHtml(
           {
@@ -266,20 +329,20 @@ export async function ingestDirectory(
         );
         return result;
       },
-    };
-  });
+    }));
 
-  // Already-done Sources are folded into `bulk.skipped` directly. Routing
-  // them through `bulkIngest` would force a second `progress.has()` round-
-  // trip per Source — on a 100k-file resume that's ~99k redundant queries.
-  const bulk = await bulkIngest(plannedJobs, progress);
+    // Already-done Sources are folded into `bulk.skipped` directly. Routing
+    // them through `bulkIngest` would force a second `progress.has()` round-
+    // trip per Source — on a 100k-file resume that's ~99k redundant queries.
+    bulk = await bulkIngest(plannedJobs, progress);
+  }
 
-  // Record hashes for successfully ingested Sources AFTER `bulkIngest`
+  // Record hashes for successfully staged/ingested Sources AFTER the bulk run
   // returns. Doing it post-success means a crash mid-distil never leaves a
-  // recorded hash for a Source that never reached the Canon, which would
-  // later make the walker silently skip its re-ingest. A crash between
-  // mark-done and hash-record is harmless: on resume the file is path-id-
-  // skipped without reading; a different path with the same text just
+  // recorded hash for a Source that never reached the Canon (or staging),
+  // which would later make the walker silently skip its re-ingest. A crash
+  // between mark-done and hash-record is harmless: on resume the file is
+  // path-id-skipped without reading; a different path with the same text just
   // re-pays a single distil call.
   for (const success of bulk.completed) {
     const hash = hashBySourceId.get(success.sourceId);

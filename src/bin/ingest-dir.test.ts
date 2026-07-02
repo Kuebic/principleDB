@@ -9,6 +9,7 @@ import { FakeIngestProvider } from '../canon/fake-provider';
 import { InMemoryRepository } from '../canon/in-memory-repository';
 import type { DistilInput } from '../canon/ports';
 import { InMemorySeenTextStore } from '../canon/seen-text-store';
+import { InMemoryStagingStore } from '../canon/staging-store';
 import { deriveHtmlSourcePathId } from './derive-path-source-id';
 import {
   formatDryRunSummary,
@@ -54,6 +55,15 @@ describe('parseIngestDirArgs', () => {
       dryRun: true,
       model: 'haiku',
     });
+  });
+
+  it('parses --phase distil (Phase A of the two-phase seed)', () => {
+    const args = parseIngestDirArgs(['corpus', '--phase', 'distil']);
+    expect(args.phase).toBe('distil');
+  });
+
+  it('throws on an unknown --phase', () => {
+    expect(() => parseIngestDirArgs(['corpus', '--phase', 'bogus'])).toThrow(/--phase must be one of/);
   });
 
   it('throws when no directory is given', () => {
@@ -602,5 +612,133 @@ describe('ingestDirectory — normalized-text dedup pre-pass (issue #16)', () =>
     );
     expect(distilCalls).toBe(2);
     expect(second.bulk!.completed).toHaveLength(1);
+  });
+});
+
+// Phase A of the two-phase seed (issue #30, PRD #27, ADR-0014). `--phase distil`
+// runs distil+admit+embed for every planned doc and writes each Source's output
+// to a Canon-invisible StagingStore. Phase B (issue #31) drains staging.
+describe('ingestDirectory — --phase distil (Phase A)', () => {
+  it('stages every kept HTML file and leaves the live Canon principle store untouched', async () => {
+    const root = makeTmpCorpus();
+    writeFile(root, 'Talks/Talk-A.html', longHtml('Talk A'));
+    writeFile(root, 'Talks/Talk-B.html', longHtml('Talk B'));
+    writeFile(root, 'Talks/Talk-C.html', longHtml('Talk C'));
+    writeFile(root, 'Talks/0-Toc.html', longHtml('TOC'));
+
+    const provider = new FakeIngestProvider((input: DistilInput) => [
+      { claim: `claim for ${input.title}.`, quote: 'sentence one is here' },
+    ]);
+    const repository = new InMemoryRepository();
+    const staging = new InMemoryStagingStore();
+
+    const result = await ingestDirectory(
+      root,
+      { provider, repository },
+      { staging, phase: 'distil' },
+    );
+
+    expect(result.dryRun).toBe(false);
+    expect(result.plan.jobs).toHaveLength(3);
+    expect(result.bulk).not.toBeNull();
+    expect(result.bulk!.completed).toHaveLength(3);
+    expect(result.bulk!.failed).toEqual([]);
+
+    // Canon is untouched — no searchable principles.
+    const [vec] = await provider.embed(['claim']);
+    const hits = await repository.searchByEmbedding(vec!, 10);
+    expect(hits).toHaveLength(0);
+
+    // Every planned Source is staged.
+    const staged = await staging.listStaged();
+    expect(staged).toHaveLength(3);
+    for (const entry of staged) {
+      const payload = await staging.read(entry.sourceId, entry.provenance);
+      expect(payload!.principles).toHaveLength(1);
+      expect(payload!.principles[0]!.embedding.length).toBeGreaterThan(0);
+    }
+  });
+
+  it('resume: Phase A skips already-staged Sources by their Phase-A progress mark', async () => {
+    const root = makeTmpCorpus();
+    writeFile(root, 'Talks/Talk-A.html', longHtml('Talk A'));
+    writeFile(root, 'Talks/Talk-B.html', longHtml('Talk B'));
+
+    const provider = new FakeIngestProvider((input: DistilInput) => [
+      { claim: `claim for ${input.title}.`, quote: 'sentence one is here' },
+    ]);
+    const repository = new InMemoryRepository();
+    const staging = new InMemoryStagingStore();
+    const progress = new InMemoryBulkProgressStore();
+
+    const first = await ingestDirectory(
+      root,
+      { provider, repository },
+      { staging, progress, phase: 'distil' },
+    );
+    expect(first.bulk!.completed).toHaveLength(2);
+    expect((await staging.listStaged()).length).toBe(2);
+
+    // Second pass: same staging + progress → both Sources are already marked → 0 new stages.
+    let distilCalls = 0;
+    const countingProvider = new FakeIngestProvider((input: DistilInput) => {
+      distilCalls++;
+      return [{ claim: `claim for ${input.title}.`, quote: 'sentence one is here' }];
+    });
+    const second = await ingestDirectory(
+      root,
+      { provider: countingProvider, repository },
+      { staging, progress, phase: 'distil' },
+    );
+    expect(distilCalls).toBe(0);
+    expect(second.bulk!.completed).toHaveLength(0);
+    expect(second.bulk!.skipped.length).toBe(2);
+  });
+
+  it('--phase distil throws when no staging store is provided (wiring guard)', async () => {
+    const root = makeTmpCorpus();
+    writeFile(root, 'Talks/Talk-A.html', longHtml('Talk A'));
+
+    const provider = new FakeIngestProvider(() => []);
+    const repository = new InMemoryRepository();
+
+    await expect(
+      ingestDirectory(root, { provider, repository }, { phase: 'distil' }),
+    ).rejects.toThrow(/staging/);
+  });
+
+  it('a distil failure leaves the Source unmarked so resume retries it', async () => {
+    const root = makeTmpCorpus();
+    writeFile(root, 'Talks/Talk-A.html', longHtml('Talk A'));
+
+    let attempts = 0;
+    let shouldFail = true;
+    const provider = new FakeIngestProvider((input: DistilInput) => {
+      attempts++;
+      if (shouldFail) throw new Error('distil failed');
+      return [{ claim: `claim for ${input.title}.`, quote: 'sentence one is here' }];
+    });
+    const repository = new InMemoryRepository();
+    const staging = new InMemoryStagingStore();
+    const progress = new InMemoryBulkProgressStore();
+
+    const first = await ingestDirectory(
+      root,
+      { provider, repository },
+      { staging, progress, phase: 'distil' },
+    );
+    expect(first.bulk!.completed).toHaveLength(0);
+    expect(first.bulk!.failed).toHaveLength(1);
+    expect((await staging.listStaged()).length).toBe(0);
+
+    shouldFail = false;
+    const second = await ingestDirectory(
+      root,
+      { provider, repository },
+      { staging, progress, phase: 'distil' },
+    );
+    expect(attempts).toBe(2);
+    expect(second.bulk!.completed).toHaveLength(1);
+    expect((await staging.listStaged()).length).toBe(1);
   });
 });

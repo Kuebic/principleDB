@@ -39,15 +39,22 @@ function bagOfWordsEmbedding(text: string, dim: number): number[] {
   return l2Normalize(vec);
 }
 
+// Distil script — sync or async. Async support lets Phase A concurrency tests
+// model per-Source latency (measure how many stage() calls run in parallel)
+// without a bespoke IngestProvider implementation.
+export type DistilScript = (
+  input: DistilInput,
+) => DistilledItem[] | Promise<DistilledItem[]>;
+
 export class FakeIngestProvider implements IngestProvider {
   readonly provenance: DistilProvenance;
   readonly confirmModel: string;
-  private readonly script: (input: DistilInput) => DistilledItem[];
+  private readonly script: DistilScript;
   private readonly dim: number;
   private readonly sameClaimScript: SameClaimScript;
 
   constructor(
-    script: (input: DistilInput) => DistilledItem[],
+    script: DistilScript,
     provenance: DistilProvenance = DEFAULT_PROVENANCE,
     dim = 128,
     sameClaimScript: SameClaimScript = DEFAULT_SAME_CLAIM,

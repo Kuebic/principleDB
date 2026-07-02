@@ -30,6 +30,7 @@ import {
 } from '../src/bin/ingest-dir';
 import { PostgresBulkProgressStore } from '../src/db/postgres-bulk-progress-store';
 import { PostgresSeenTextStore } from '../src/db/postgres-seen-text-store';
+import { PostgresStagingStore } from '../src/db/postgres-staging-store';
 
 // Default to Haiku for directory walks. The single-file `ingest:html` /
 // `ingest:text` paths keep Opus as their default (already wired through
@@ -46,14 +47,28 @@ async function main(): Promise<void> {
   try {
     // Reuse the same Postgres pool for the durable progress + dedup stores
     // so the walker doesn't open extra connection pools just to record state.
-    const progress = new PostgresBulkProgressStore(pool, { phase: 'ingest:dir' });
+    // Two-phase seed (issue #30, PRD #27, ADR-0014): Phase A marks under
+    // `ingest:dir:distil` and writes to the Canon-invisible staging store;
+    // Phase B (issue #31) marks under `ingest:dir:dedup` and drains staging.
+    // Single-phase runs keep the historical `ingest:dir` phase label so an
+    // existing durable progress row is not orphaned.
+    const progressPhase =
+      args.phase === 'distil'
+        ? 'ingest:dir:distil'
+        : args.phase === 'dedup'
+          ? 'ingest:dir:dedup'
+          : 'ingest:dir';
+    const progress = new PostgresBulkProgressStore(pool, { phase: progressPhase });
     const seenText = new PostgresSeenTextStore(pool);
+    const staging = args.phase === 'distil' ? new PostgresStagingStore(pool) : undefined;
     const result = await ingestDirectory(args.path, deps, {
       progress,
       seenText,
       ...(args.dryRun !== undefined ? { dryRun: args.dryRun } : {}),
       ...(args.limit !== undefined ? { limit: args.limit } : {}),
       ...(args.kind !== undefined ? { kind: args.kind } : {}),
+      ...(args.phase !== undefined ? { phase: args.phase } : {}),
+      ...(staging !== undefined ? { staging } : {}),
     });
 
     if (result.dryRun) {
@@ -64,9 +79,10 @@ async function main(): Promise<void> {
     }
 
     const bulk = result.bulk!;
-    console.log(`Walked ${args.path}`);
+    const verb = args.phase === 'distil' ? 'staged' : 'ingested';
+    console.log(`Walked ${args.path}${args.phase ? ` (--phase ${args.phase})` : ''}`);
     console.log(`  jobs planned : ${result.plan.jobs.length}`);
-    console.log(`  ingested : ${bulk.completed.length}`);
+    console.log(`  ${verb} : ${bulk.completed.length}`);
     console.log(`  skipped (already done) : ${bulk.skipped.length}`);
     console.log(`  failed : ${bulk.failed.length}`);
     console.log(`  aborted : ${bulk.aborted}`);
