@@ -342,27 +342,28 @@ export async function ingestDirectory(
     const stagedIndex = new Map(
       (await staging.listStaged()).map((e) => [e.sourceId, e.provenance] as const),
     );
-    const dedupJobs: BulkDedupJob[] = perSource
-      .filter(({ sourceId }) => stagedIndex.has(sourceId))
-      .map(({ sourceId }) => {
-        const provenance = stagedIndex.get(sourceId)!;
-        return {
-          sourceId,
-          dedup: async () => {
-            const payload = await staging.read(sourceId, provenance);
-            if (!payload) {
-              throw new Error(`staged payload for ${sourceId} disappeared between listStaged and read`);
-            }
-            const result = await dedupStagedSource(sourceId, payload, deps, {
-              ...(options.confirmConcurrency !== undefined
-                ? { confirmConcurrency: options.confirmConcurrency }
-                : {}),
-            });
-            await staging.delete(sourceId, provenance);
-            return result;
-          },
-        };
-      });
+    const dedupJobs: BulkDedupJob[] = perSource.flatMap(({ sourceId }) => {
+      const provenance = stagedIndex.get(sourceId);
+      if (provenance === undefined) return [];
+      return [{
+        sourceId,
+        dedup: async () => {
+          const payload = await staging.read(sourceId, provenance);
+          if (!payload) {
+            throw new Error(
+              `staged payload for ${sourceId} disappeared between listStaged and read`,
+            );
+          }
+          const result = await dedupStagedSource(sourceId, payload, deps, {
+            ...(options.confirmConcurrency !== undefined
+              ? { confirmConcurrency: options.confirmConcurrency }
+              : {}),
+          });
+          await staging.delete(sourceId, provenance);
+          return result;
+        },
+      }];
+    });
     bulk = await bulkDedup(dedupJobs, progress);
   } else {
     const plannedJobs = perSource.map(({ job, sourceId }) => ({

@@ -39,6 +39,12 @@ import { PostgresStagingStore } from '../src/db/postgres-staging-store';
 const HAIKU_MODEL_ID = 'claude-haiku-4-5-20251001';
 const OPUS_MODEL_ID = 'claude-opus-4-8';
 
+const VERB_BY_PHASE = {
+  distil: 'staged',
+  dedup: 'deduped',
+  single: 'ingested',
+} as const;
+
 async function main(): Promise<void> {
   const args = parseIngestDirArgs(process.argv.slice(2));
 
@@ -74,8 +80,7 @@ async function main(): Promise<void> {
     }
 
     const bulk = result.bulk!;
-    const verb =
-      args.phase === 'distil' ? 'staged' : args.phase === 'dedup' ? 'deduped' : 'ingested';
+    const verb = VERB_BY_PHASE[args.phase ?? 'single'];
     console.log(`Walked ${args.path}${args.phase ? ` (--phase ${args.phase})` : ''}`);
     console.log(`  jobs planned : ${result.plan.jobs.length}`);
     console.log(`  ${verb} : ${bulk.completed.length}`);
