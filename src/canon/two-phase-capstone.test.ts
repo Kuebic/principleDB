@@ -33,7 +33,7 @@ import { dedupStagedSource, ingestSource, stageSource } from './ingest';
 import { InMemoryRepository } from './in-memory-repository';
 import { InMemoryStagingStore } from './staging-store';
 import type { DistilInput, SameClaimVerdict } from './ports';
-import type { DedupDecision, LocatedQuote, ReviewCandidate, Source } from './types';
+import type { DedupDecision, DistilProvenance, LocatedQuote, ReviewCandidate, Source } from './types';
 
 // ---------- Fixture ----------
 //
@@ -168,6 +168,32 @@ async function runSinglePhase(order: Source[]): Promise<InMemoryRepository> {
   return repository;
 }
 
+// Build Phase-B dedup jobs from staging in plan-walk order: each job reads
+// the payload, dedups against the Canon-so-far, and deletes the staging row.
+// Sources absent from staging (e.g. Phase A failed for them) are skipped.
+async function buildDedupJobs(
+  order: Source[],
+  staging: InMemoryStagingStore,
+  deps: { provider: FakeIngestProvider; repository: InMemoryRepository },
+): Promise<BulkDedupJob[]> {
+  const stagedProv = new Map<string, DistilProvenance>(
+    (await staging.listStaged()).map((e) => [e.sourceId, e.provenance] as const),
+  );
+  return order.flatMap((s) => {
+    const prov = stagedProv.get(s.id);
+    if (prov === undefined) return [];
+    return [{
+      sourceId: s.id,
+      dedup: async () => {
+        const payload = await staging.read(s.id, prov);
+        const result = await dedupStagedSource(s.id, payload!, deps);
+        await staging.delete(s.id, prov);
+        return result;
+      },
+    }];
+  });
+}
+
 async function runTwoPhase(
   order: Source[],
   options: { stageConcurrency?: number; stageDelayMs?: (source: Source) => number } = {},
@@ -190,22 +216,7 @@ async function runTwoPhase(
   });
 
   // Phase B — serial drain in PLAN-WALK order (not staging insertion order).
-  const stagedIndex = new Map(
-    (await staging.listStaged()).map((e) => [e.sourceId, e.provenance] as const),
-  );
-  const dedupJobs: BulkDedupJob[] = order.flatMap((s) => {
-    const prov = stagedIndex.get(s.id);
-    if (prov === undefined) return [];
-    return [{
-      sourceId: s.id,
-      dedup: async () => {
-        const payload = await staging.read(s.id, prov);
-        const result = await dedupStagedSource(s.id, payload!, { provider, repository });
-        await staging.delete(s.id, prov);
-        return result;
-      },
-    }];
-  });
+  const dedupJobs = await buildDedupJobs(order, staging, { provider, repository });
   await bulkDedup(dedupJobs, new InMemoryBulkProgressStore());
 
   return { repository, staging };
@@ -325,23 +336,11 @@ describe('two-phase seed capstone (issue #32, PRD #27, ADR-0014)', () => {
 
     // Uninterrupted reference — the Canon a clean Phase B produces.
     const clean = await stagePhaseA();
-    const cleanIndex = new Map(
-      (await clean.staging.listStaged()).map((e) => [e.sourceId, e.provenance] as const),
-    );
     await bulkDedup(
-      PLAN_ORDER.map((s) => ({
-        sourceId: s.id,
-        dedup: async () => {
-          const prov = cleanIndex.get(s.id)!;
-          const payload = await clean.staging.read(s.id, prov);
-          const r = await dedupStagedSource(s.id, payload!, {
-            provider: clean.provider,
-            repository: clean.repository,
-          });
-          await clean.staging.delete(s.id, prov);
-          return r;
-        },
-      })),
+      await buildDedupJobs(PLAN_ORDER, clean.staging, {
+        provider: clean.provider,
+        repository: clean.repository,
+      }),
       new InMemoryBulkProgressStore(),
     );
     const reference = await snapshotCanon(clean.repository);
@@ -462,28 +461,15 @@ describe('two-phase seed capstone (issue #32, PRD #27, ADR-0014)', () => {
 
     // Drain Phase B against what's in staging. The empty s2 payload contributes
     // nothing to the Canon; s1's distil results land.
-    const stagedIndex = new Map(
-      (await staging.listStaged()).map((e) => [e.sourceId, e.provenance] as const),
-    );
     await bulkDedup(
-      [s1, s2].flatMap((s) => {
-        const prov = stagedIndex.get(s.id);
-        if (prov === undefined) return [];
-        return [{
-          sourceId: s.id,
-          dedup: async () => {
-            const payload = await staging.read(s.id, prov);
-            return dedupStagedSource(s.id, payload!, { provider: provider2, repository });
-          },
-        }];
-      }),
+      await buildDedupJobs([s1, s2], staging, { provider: provider2, repository }),
       new InMemoryBulkProgressStore(),
     );
     const snap = await snapshotCanon(repository);
-    const perSource = new Map<string, number>();
-    for (const p of snap.principles) perSource.set(p.id.split('#')[0]!, (perSource.get(p.id.split('#')[0]!) ?? 0) + 1);
-    expect(perSource.get('s1')).toBe(2); // Grace + Faith
-    expect(perSource.get('s2') ?? 0).toBe(0); // empty distil contributed nothing
+    const countPrinciples = (sourceId: string) =>
+      snap.principles.filter((p) => p.id.startsWith(`${sourceId}#`)).length;
+    expect(countPrinciples('s1')).toBe(2); // Grace + Faith
+    expect(countPrinciples('s2')).toBe(0); // empty distil contributed nothing
   });
 
   it('Canon-invisibility under drain: staged-but-not-yet-deduped siblings are not dedup candidates', async () => {
