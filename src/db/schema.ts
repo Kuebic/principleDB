@@ -148,3 +148,51 @@ export const bulkProgress = pgTable(
 export const seenText = pgTable('seen_text', {
   hash: text('hash').primaryKey(),
 });
+
+// Canon-invisible staging for the two-phase seed (issue #29, PRD #27,
+// ADR-0014). Phase A writes each Source's admitted + embedded Principles +
+// Review candidates here; Phase B drains and dedups against the Canon-so-far.
+//
+// Load-bearing property: this is a *separate* table, not a flag on
+// `principle` — the dedup query (`findSimilarPrinciplesExcludingSource`)
+// selects `FROM principle` and cannot see staging by construction. If it
+// could, Phase B would find un-deduped siblings as merge candidates and
+// first-Source-wins (ADR-0008) would break.
+//
+// Keyed on the same tuple `replacePrinciplesForSource` uses so a re-stage
+// under the same provenance replaces (idempotent). Payload is one `jsonb`
+// blob per Source — the whole admitted-Principles + Review-candidates +
+// provenance bundle — chosen for the smallest slice; a mirror of
+// `principle`/`quote` with a real `vector` column stays an option under the
+// same port if a reviewer prefers it later.
+//
+// No FK to `source`: Phase A upserts the Source before staging, but a staged
+// row is a *transient buffer* between phases (deleted after Phase B persists),
+// not a canonical child of the Source. Keeping the FK off matches
+// `bulk_progress` — staging is an audit-free operational cache.
+export const stagedSource = pgTable(
+  'staged_source',
+  {
+    sourceId: text('source_id').notNull(),
+    distilModel: text('distil_model').notNull(),
+    distilModelVersion: text('distil_model_version').notNull(),
+    distilPromptVersion: text('distil_prompt_version').notNull(),
+    // The whole admitted-Principles (with embeddings + Quotes) + Review-
+    // candidates + provenance bundle. Phase B rehydrates domain types from
+    // this blob; embeddings are stored as JSON arrays of numbers rather than
+    // a real pgvector column because staged Principles never participate in
+    // a similarity search — Phase B just replays them into the existing
+    // dedup loop, which vector-queries the live `principle` table.
+    payload: jsonb('payload').notNull(),
+  },
+  (t) => ({
+    pk: primaryKey({
+      columns: [
+        t.sourceId,
+        t.distilModel,
+        t.distilModelVersion,
+        t.distilPromptVersion,
+      ],
+    }),
+  }),
+);
