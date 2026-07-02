@@ -199,3 +199,81 @@ export async function bulkStage(
 
   return { completed, failed, skipped, aborted: options.signal?.aborted ?? false };
 }
+
+// Phase B driver — issue #31, PRD #27, ADR-0014.
+//
+// Serial-across-Sources counterpart to `bulkStage`. Where Phase A runs distil
+// under a parallel pool (Canon-independent), Phase B walks the queue one
+// Source at a time so each dedup sees a stable Canon snapshot — the
+// ADR-0008 first-Source-wins invariant the whole two-phase split exists to
+// preserve. The caller is responsible for ordering the queue: the plan walk
+// pins order (`ingest-dir.ts`), not the staging insertion order.
+//
+// The within-Source confirm pool (ADR-0013) lives inside `dedup()` and is
+// forwarded from the per-Source `dedup` thunk; this driver just walks jobs.
+// Structurally mirrors `bulkIngest` (serial + resumable + failure capture +
+// abort semantics) — it is intentionally a separate function so `bulkIngest`
+// keeps distil-inline semantics and Phase B keeps staged-payload semantics.
+
+export interface BulkDedupJob {
+  sourceId: string;
+  dedup: () => Promise<IngestResult>;
+}
+
+export interface BulkDedupOptions {
+  signal?: AbortSignal;
+}
+
+export interface BulkDedupSuccess {
+  sourceId: string;
+  result: IngestResult;
+}
+
+export interface BulkDedupFailure {
+  sourceId: string;
+  error: string;
+}
+
+export interface BulkDedupResult {
+  completed: BulkDedupSuccess[];
+  failed: BulkDedupFailure[];
+  skipped: string[];
+  aborted: boolean;
+}
+
+export async function bulkDedup(
+  jobs: BulkDedupJob[],
+  progress: BulkProgressStore,
+  options: BulkDedupOptions = {},
+): Promise<BulkDedupResult> {
+  const completed: BulkDedupSuccess[] = [];
+  const failed: BulkDedupFailure[] = [];
+  const skipped: string[] = [];
+
+  for (const job of jobs) {
+    if (options.signal?.aborted) {
+      return { completed, failed, skipped, aborted: true };
+    }
+    if (await progress.has(job.sourceId)) {
+      skipped.push(job.sourceId);
+      continue;
+    }
+    try {
+      const result = await job.dedup();
+      // Mark BEFORE recording success so a kill between the two leaves progress
+      // consistent with "this Source is deduped". `replacePrinciplesForSource`
+      // is idempotent so a resume that re-runs a marked-but-unrecorded Source
+      // would still land the same rows (ADR-0008); the mark-first ordering
+      // just avoids that extra work on the common path.
+      await progress.mark(job.sourceId);
+      completed.push({ sourceId: job.sourceId, result });
+    } catch (e) {
+      if (options.signal?.aborted) {
+        return { completed, failed, skipped, aborted: true };
+      }
+      failed.push({ sourceId: job.sourceId, error: formatError(job.sourceId, e) });
+    }
+  }
+
+  return { completed, failed, skipped, aborted: options.signal?.aborted ?? false };
+}

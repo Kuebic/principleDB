@@ -31,15 +31,18 @@ import { readdirSync, readFileSync, statSync } from 'node:fs';
 import { join, relative, sep } from 'node:path';
 
 import {
+  bulkDedup,
   bulkIngest,
   bulkStage,
   InMemoryBulkProgressStore,
+  type BulkDedupJob,
+  type BulkDedupResult,
   type BulkIngestResult,
   type BulkProgressStore,
   type BulkStageJob,
   type BulkStageResult,
 } from '../canon/bulk-ingest';
-import { stageSource } from '../canon/ingest';
+import { dedupStagedSource, stageSource } from '../canon/ingest';
 import type { CanonRepository, IngestProvider } from '../canon/ports';
 import {
   InMemorySeenTextStore,
@@ -63,10 +66,11 @@ import {
 
 export type DistilModelChoice = 'haiku' | 'opus';
 
-// Two-phase seed mode selector (issue #30, PRD #27, ADR-0014). `distil` runs
-// Phase A: parallel distil+admit+embed to staging, no Canon write. `dedup`
-// (issue #31, follow-up) drains staging → dedup → persist. Absent flag ⇒
-// today's single-phase pipeline (unchanged).
+// Two-phase seed mode selector (issue #30/#31, PRD #27, ADR-0014). `distil`
+// runs Phase A: parallel distil+admit+embed to staging, no Canon write.
+// `dedup` runs Phase B: serial-across drain of the staging store in plan-walk
+// order → dedup against Canon-so-far → persist. Absent flag ⇒ today's
+// single-phase pipeline (unchanged).
 export type IngestDirPhase = 'distil' | 'dedup';
 
 export interface IngestDirArgs {
@@ -161,25 +165,31 @@ export interface IngestDirectoryOptions {
   // recorded AFTER ingest succeeds so a crash mid-distil never leaves an
   // orphan hash that would later silently skip the file without ingesting.
   seenText?: SeenTextStore;
-  // Two-phase seed mode (issue #30, PRD #27, ADR-0014). `distil` ⇒ Phase A:
-  // parallel distil+admit+embed to `staging`, no Canon write. Absent ⇒
-  // today's single-phase pipeline. `--phase distil` requires `staging`.
+  // Two-phase seed mode (issue #30/#31, PRD #27, ADR-0014). `distil` ⇒ Phase
+  // A: parallel distil+admit+embed to `staging`, no Canon write. `dedup` ⇒
+  // Phase B: serial-across drain of staging in plan-walk order → dedup →
+  // persist. Absent ⇒ today's single-phase pipeline. Both phases require
+  // `staging`.
   phase?: IngestDirPhase;
-  // Canon-invisible staging store used by Phase A. Required when
-  // `phase === 'distil'`; ignored otherwise.
+  // Canon-invisible staging store used by both phases. Required when `phase`
+  // is set; ignored otherwise.
   staging?: StagingStore;
   // Worker-pool size for Phase A distil fan-out; forwarded to `bulkStage`.
   // Default ~30 (Haiku target from ADR-0014 / the #25 spike).
   stageConcurrency?: number;
+  // Within-Source confirm pool size for Phase B (ADR-0013 lever 1). Forwarded
+  // to `dedupStagedSource` → `dedup()`. Absent ⇒ dedup's default (8 today).
+  // The seed run raises this > 32 per the #25 spike headroom.
+  confirmConcurrency?: number;
 }
 
 export interface IngestDirectoryResult {
   dryRun: boolean;
   plan: JobPlan;
-  // `null` in dry-run mode (no jobs were actually attempted). In Phase A mode
-  // this holds the `bulkStage` result under the same shape as `bulkIngest`
-  // (per-source completed / failed / skipped stats are common).
-  bulk: BulkIngestResult | BulkStageResult | null;
+  // `null` in dry-run mode (no jobs were actually attempted). In Phase A/B
+  // modes this holds the `bulkStage` / `bulkDedup` result — same shape as
+  // `bulkIngest` (per-source completed / failed / skipped stats are common).
+  bulk: BulkIngestResult | BulkStageResult | BulkDedupResult | null;
 }
 
 export async function ingestDirectory(
@@ -191,8 +201,8 @@ export async function ingestDirectory(
   const seenText = options.seenText ?? new InMemorySeenTextStore();
   const isDryRun = options.dryRun === true;
   const phase = options.phase;
-  if (phase === 'distil' && options.staging === undefined) {
-    throw new Error('--phase distil requires a staging store (option `staging`)');
+  if (phase !== undefined && options.staging === undefined) {
+    throw new Error(`--phase ${phase} requires a staging store (option \`staging\`)`);
   }
 
   // Walk paths and consult the progress store BEFORE reading any HTML —
@@ -288,7 +298,7 @@ export async function ingestDirectory(
   // the raw markup. Re-reading is cheap relative to a distil call and keeps
   // the planner contract small. Decode is encoding-aware (issue #20) so
   // legacy Windows-1252 bytes reach the deriver as proper UTF-8.
-  let bulk: BulkIngestResult | BulkStageResult;
+  let bulk: BulkIngestResult | BulkStageResult | BulkDedupResult;
   if (phase === 'distil') {
     const staging = options.staging!;
     const stageJobs: BulkStageJob[] = perSource.map(({ job, sourceId }) => ({
@@ -313,6 +323,47 @@ export async function ingestDirectory(
         ? { concurrency: options.stageConcurrency }
         : {}),
     });
+  } else if (phase === 'dedup') {
+    // Phase B of the two-phase seed (issue #31, PRD #27, ADR-0014). The plan
+    // walk above already pinned the ADR-0014 order (path-lexical, same as
+    // Phase A). For each Source we look up its staged (sourceId, provenance)
+    // key — provenance travels IN the staging payload, so a Phase-B provider
+    // configured differently than Phase A still writes the same ID slots
+    // (ADR-0014 "Provenance-in-payload"). Sources not present in staging are
+    // silently skipped: they were either filtered out in Phase A (near-empty,
+    // binary, normalized-duplicate) or their Phase A distil failed — either
+    // way, Phase B has no payload to dedup.
+    //
+    // Draining (`staging.delete` after `dedupStagedSource` returns) shrinks
+    // the staging table as Phase B progresses; a crash between persist and
+    // mark is safe (ADR-0014: `replacePrinciplesForSource` is idempotent and
+    // Phase B skips the marked Source on resume).
+    const staging = options.staging!;
+    const stagedIndex = new Map(
+      (await staging.listStaged()).map((e) => [e.sourceId, e.provenance] as const),
+    );
+    const dedupJobs: BulkDedupJob[] = perSource
+      .filter(({ sourceId }) => stagedIndex.has(sourceId))
+      .map(({ sourceId }) => {
+        const provenance = stagedIndex.get(sourceId)!;
+        return {
+          sourceId,
+          dedup: async () => {
+            const payload = await staging.read(sourceId, provenance);
+            if (!payload) {
+              throw new Error(`staged payload for ${sourceId} disappeared between listStaged and read`);
+            }
+            const result = await dedupStagedSource(sourceId, payload, deps, {
+              ...(options.confirmConcurrency !== undefined
+                ? { confirmConcurrency: options.confirmConcurrency }
+                : {}),
+            });
+            await staging.delete(sourceId, provenance);
+            return result;
+          },
+        };
+      });
+    bulk = await bulkDedup(dedupJobs, progress);
   } else {
     const plannedJobs = perSource.map(({ job, sourceId }) => ({
       sourceId,

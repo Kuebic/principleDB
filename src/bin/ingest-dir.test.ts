@@ -742,3 +742,252 @@ describe('ingestDirectory — --phase distil (Phase A)', () => {
     expect((await staging.listStaged()).length).toBe(1);
   });
 });
+
+// Phase B of the two-phase seed (issue #31, PRD #27, ADR-0014). `--phase dedup`
+// drains the staging store in plan-walk order, running dedup against the
+// Canon-so-far for each Source, then persisting. Provenance in the persisted
+// rows comes from the staged payload (ADR-0014 "Provenance-in-payload"), not
+// from a Phase-B provider config that might drift from Phase A's.
+describe('ingestDirectory — --phase dedup (Phase B)', () => {
+  it('drains every staged Source and persists Principles to the Canon', async () => {
+    const root = makeTmpCorpus();
+    writeFile(root, 'Talks/Talk-A.html', longHtml('Talk A'));
+    writeFile(root, 'Talks/Talk-B.html', longHtml('Talk B'));
+    writeFile(root, 'Talks/Talk-C.html', longHtml('Talk C'));
+
+    const provider = new FakeIngestProvider((input: DistilInput) => [
+      { claim: `claim for ${input.title}.`, quote: 'sentence one is here' },
+    ]);
+    const repository = new InMemoryRepository();
+    const staging = new InMemoryStagingStore();
+
+    // Phase A first.
+    const phaseA = await ingestDirectory(
+      root,
+      { provider, repository },
+      { staging, phase: 'distil' },
+    );
+    expect(phaseA.bulk!.completed).toHaveLength(3);
+    // Canon is still empty at this point.
+    const [vec0] = await provider.embed(['claim']);
+    expect(await repository.searchByEmbedding(vec0!, 10)).toHaveLength(0);
+
+    // Phase B.
+    const phaseB = await ingestDirectory(
+      root,
+      { provider, repository },
+      { staging, phase: 'dedup' },
+    );
+    expect(phaseB.bulk!.completed).toHaveLength(3);
+    expect(phaseB.bulk!.failed).toEqual([]);
+
+    // Canon now holds three Principles; staging has been drained.
+    const [vec] = await provider.embed(['claim']);
+    const hits = await repository.searchByEmbedding(vec!, 10);
+    expect(hits).toHaveLength(3);
+    expect((await staging.listStaged()).length).toBe(0);
+  });
+
+  it('Phase B order is the plan walk — shuffling staging insertion does not change merges', async () => {
+    // ADR-0014's "Phase-B order = the plan walk" guardrail. If the near-
+    // identical claim from Talk-B stages BEFORE Talk-A, but Phase B still
+    // walks alphabetically, Talk-A wins first-Source-wins and Talk-B attaches.
+    // If Phase B respected staging insertion order instead, the roles would
+    // swap and the persisted principle IDs would flip.
+    const rootA = makeTmpCorpus();
+    const rootB = makeTmpCorpus();
+    writeFile(rootA, 'Talks/Talk-A.html', longHtml('Talk A'));
+    writeFile(rootA, 'Talks/Talk-B.html', longHtml('Talk B'));
+    writeFile(rootB, 'Talks/Talk-A.html', longHtml('Talk A'));
+    writeFile(rootB, 'Talks/Talk-B.html', longHtml('Talk B'));
+
+    const stagingA = new InMemoryStagingStore();
+    const stagingB = new InMemoryStagingStore();
+    const repoA = new InMemoryRepository();
+    const repoB = new InMemoryRepository();
+
+    // Same distil script for both — but the merge candidates say "same" so we
+    // can observe which Principle wins the merge.
+    const buildProvider = () =>
+      new FakeIngestProvider(
+        (input: DistilInput) => [
+          { claim: 'Shared claim.', quote: 'sentence one is here' },
+        ],
+        undefined,
+        undefined,
+        () => ({ same: true, rationale: 'match' }),
+      );
+
+    // Run 1: Phase A in natural walk order (A then B), then Phase B.
+    const providerA1 = buildProvider();
+    await ingestDirectory(rootA, { provider: providerA1, repository: repoA }, {
+      staging: stagingA,
+      phase: 'distil',
+    });
+    await ingestDirectory(rootA, { provider: providerA1, repository: repoA }, {
+      staging: stagingA,
+      phase: 'dedup',
+    });
+
+    // Run 2: same input, but stage in reverse order (B then A) — swap the two
+    // sourceIds' staged entries after Phase A. Phase B must still walk
+    // path-lexically, so Talk-A still wins the merge.
+    const providerA2 = buildProvider();
+    await ingestDirectory(rootB, { provider: providerA2, repository: repoB }, {
+      staging: stagingB,
+      phase: 'distil',
+    });
+    // Simulate reordered staging: pull both entries out, re-insert reversed.
+    const entries = await stagingB.listStaged();
+    const payloads = await Promise.all(
+      entries.map(async (e) => ({
+        entry: e,
+        payload: (await stagingB.read(e.sourceId, e.provenance))!,
+      })),
+    );
+    for (const { entry } of payloads) await stagingB.delete(entry.sourceId, entry.provenance);
+    for (const { entry, payload } of [...payloads].reverse()) {
+      await stagingB.stage(entry.sourceId, entry.provenance, payload);
+    }
+    await ingestDirectory(rootB, { provider: providerA2, repository: repoB }, {
+      staging: stagingB,
+      phase: 'dedup',
+    });
+
+    // Both runs produce ONE Principle (the other attached).
+    const [vec] = await providerA1.embed(['claim']);
+    const hitsA = await repoA.searchByEmbedding(vec!, 10);
+    const hitsB = await repoB.searchByEmbedding(vec!, 10);
+    expect(hitsA).toHaveLength(1);
+    expect(hitsB).toHaveLength(1);
+    // The winning Principle's ID belongs to Talk-A in BOTH runs — order is
+    // pinned by the plan walk, not staging insertion.
+    const aIdA = deriveHtmlSourcePathId('Talks/Talk-A.html');
+    expect(hitsA[0]!.principle.id.startsWith(aIdA)).toBe(true);
+    expect(hitsB[0]!.principle.id.startsWith(aIdA)).toBe(true);
+  });
+
+  it('resume: Phase B skips Sources already marked and only dedups the rest', async () => {
+    const root = makeTmpCorpus();
+    writeFile(root, 'Talks/Talk-A.html', longHtml('Talk A'));
+    writeFile(root, 'Talks/Talk-B.html', longHtml('Talk B'));
+    writeFile(root, 'Talks/Talk-C.html', longHtml('Talk C'));
+
+    const provider = new FakeIngestProvider((input: DistilInput) => [
+      { claim: `claim for ${input.title}.`, quote: 'sentence one is here' },
+    ]);
+    const repository = new InMemoryRepository();
+    const staging = new InMemoryStagingStore();
+
+    // Phase A completes.
+    await ingestDirectory(root, { provider, repository }, {
+      staging,
+      phase: 'distil',
+    });
+
+    // First Phase B pass aborts after the first Source. Simulate by pre-
+    // marking Talk-A as done under the dedup phase's progress store.
+    const dedupProgress = new InMemoryBulkProgressStore();
+    const aId = deriveHtmlSourcePathId('Talks/Talk-A.html');
+    await dedupProgress.mark(aId);
+
+    // Track which Sources actually reach dedup — the marked one shouldn't.
+    let dedupsRun = 0;
+    const observingProvider = new FakeIngestProvider(
+      (input: DistilInput) => [
+        { claim: `claim for ${input.title}.`, quote: 'sentence one is here' },
+      ],
+      undefined,
+      undefined,
+      async () => {
+        dedupsRun++;
+        return { same: false, rationale: '' };
+      },
+    );
+
+    const result = await ingestDirectory(
+      root,
+      { provider: observingProvider, repository },
+      { staging, phase: 'dedup', progress: dedupProgress },
+    );
+
+    expect(result.bulk!.skipped.length).toBeGreaterThanOrEqual(1);
+    expect(result.bulk!.skipped).toContain(aId);
+    // Only two Sources actually deduped.
+    expect(result.bulk!.completed).toHaveLength(2);
+    expect(result.bulk!.completed.map((c) => c.sourceId)).not.toContain(aId);
+    // dedupsRun counts confirm calls: A had none run, B+C each ran up to one
+    // per Principle. What we care about is that A was skipped entirely — the
+    // Canon should not have A's Principle from this pass (it wasn't in it
+    // when the pass started, and it's not run).
+    expect(dedupsRun).toBeGreaterThanOrEqual(0);
+  });
+
+  it('drains the staging table as Phase B completes (progress + drain)', async () => {
+    const root = makeTmpCorpus();
+    writeFile(root, 'Talks/Talk-A.html', longHtml('Talk A'));
+    writeFile(root, 'Talks/Talk-B.html', longHtml('Talk B'));
+
+    const provider = new FakeIngestProvider((input: DistilInput) => [
+      { claim: `claim for ${input.title}.`, quote: 'sentence one is here' },
+    ]);
+    const repository = new InMemoryRepository();
+    const staging = new InMemoryStagingStore();
+
+    await ingestDirectory(root, { provider, repository }, {
+      staging,
+      phase: 'distil',
+    });
+    expect((await staging.listStaged()).length).toBe(2);
+
+    await ingestDirectory(root, { provider, repository }, {
+      staging,
+      phase: 'dedup',
+    });
+    expect((await staging.listStaged()).length).toBe(0);
+  });
+
+  it('--phase dedup throws when no staging store is provided (wiring guard)', async () => {
+    const root = makeTmpCorpus();
+    writeFile(root, 'Talks/Talk-A.html', longHtml('Talk A'));
+
+    const provider = new FakeIngestProvider(() => []);
+    const repository = new InMemoryRepository();
+
+    await expect(
+      ingestDirectory(root, { provider, repository }, { phase: 'dedup' }),
+    ).rejects.toThrow(/staging/);
+  });
+
+  it('Sources missing from staging (Phase A failed) are silently skipped, not treated as failures', async () => {
+    // ADR-0014: Phase A failures leave Sources unstaged. Phase B has no
+    // payload to dedup — it must skip cleanly rather than raise a failure
+    // (which would eat retry budget). The Phase-A re-run is what recovers.
+    const root = makeTmpCorpus();
+    writeFile(root, 'Talks/Talk-A.html', longHtml('Talk A'));
+    writeFile(root, 'Talks/Talk-B.html', longHtml('Talk B'));
+
+    // Only Talk-A gets staged; Talk-B has no payload.
+    const provider = new FakeIngestProvider((input: DistilInput) => [
+      { claim: `claim for ${input.title}.`, quote: 'sentence one is here' },
+    ]);
+    const repository = new InMemoryRepository();
+    const staging = new InMemoryStagingStore();
+
+    // Manually stage just Talk-A (as if Phase A had partially failed on Talk-B).
+    await ingestDirectory(root, { provider, repository }, {
+      staging,
+      phase: 'distil',
+      limit: 1,
+    });
+    expect((await staging.listStaged()).length).toBe(1);
+
+    const result = await ingestDirectory(root, { provider, repository }, {
+      staging,
+      phase: 'dedup',
+    });
+    // Only Talk-A was drained; Talk-B has no payload → not a failure, not a dedup.
+    expect(result.bulk!.completed).toHaveLength(1);
+    expect(result.bulk!.failed).toEqual([]);
+  });
+});

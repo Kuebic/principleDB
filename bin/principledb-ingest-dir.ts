@@ -55,7 +55,7 @@ async function main(): Promise<void> {
     const progressPhase = args.phase ? `ingest:dir:${args.phase}` : 'ingest:dir';
     const progress = new PostgresBulkProgressStore(pool, { phase: progressPhase });
     const seenText = new PostgresSeenTextStore(pool);
-    const staging = args.phase === 'distil' ? new PostgresStagingStore(pool) : undefined;
+    const staging = args.phase !== undefined ? new PostgresStagingStore(pool) : undefined;
     const result = await ingestDirectory(args.path, deps, {
       progress,
       seenText,
@@ -74,7 +74,8 @@ async function main(): Promise<void> {
     }
 
     const bulk = result.bulk!;
-    const verb = args.phase === 'distil' ? 'staged' : 'ingested';
+    const verb =
+      args.phase === 'distil' ? 'staged' : args.phase === 'dedup' ? 'deduped' : 'ingested';
     console.log(`Walked ${args.path}${args.phase ? ` (--phase ${args.phase})` : ''}`);
     console.log(`  jobs planned : ${result.plan.jobs.length}`);
     console.log(`  ${verb} : ${bulk.completed.length}`);

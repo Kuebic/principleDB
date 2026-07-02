@@ -17,7 +17,7 @@
 import { admit } from './admission';
 import { dedup } from './dedup';
 import type { CanonRepository, IngestProvider } from './ports';
-import type { StagingStore } from './staging-store';
+import type { StagingPayload, StagingStore } from './staging-store';
 import type { DistilledItem, Source } from './types';
 
 export interface IngestResult {
@@ -84,6 +84,62 @@ export async function ingestDistilledItems(
     admitted: freshPrinciples.length,
     merged: attachedQuotes.length,
     review: reviewCandidates.length,
+  };
+}
+
+// Phase B per-Source entry point (issue #31, PRD #27, ADR-0014). Drains a
+// single staged payload against the Canon-so-far: `dedup` → `replacePrinciplesForSource`
+// + `addReviewCandidates`. Provenance is taken from the **payload**, not from
+// `deps.provider.provenance` — that is the ADR-0014 guardrail against a
+// Phase-B provider config that does not match Phase A's minting mismatched ID
+// slots. `deps.provider` still supplies `confirmSameClaim` and `confirmModel`,
+// where a different Phase-B model is expected (ADR-0013 lever 2 — confirm
+// model is not part of the provenance tuple).
+//
+// `dedup.ts` is unchanged; the within-Source confirm pool (`confirmConcurrency`,
+// ADR-0013) is forwarded through so the seed can raise it > 32 for Phase B.
+// `replacePrinciplesForSource`'s (sourceId, provenance)-slot idempotency
+// (ADR-0008) makes a crash between persist and mark safe to resume.
+export async function dedupStagedSource(
+  sourceId: string,
+  payload: StagingPayload,
+  deps: { provider: IngestProvider; repository: CanonRepository },
+  options: { confirmConcurrency?: number } = {},
+): Promise<IngestResult> {
+  const source = await deps.repository.getSource(sourceId);
+  if (!source) {
+    throw new Error(
+      `dedupStagedSource: source ${sourceId} is not in the repository — Phase A must upsert before staging`,
+    );
+  }
+
+  const { freshPrinciples, attachedQuotes, decisions } = await dedup(
+    payload.principles,
+    source,
+    payload.provenance,
+    {
+      provider: deps.provider,
+      repository: deps.repository,
+      ...(options.confirmConcurrency !== undefined
+        ? { confirmConcurrency: options.confirmConcurrency }
+        : {}),
+    },
+  );
+
+  await deps.repository.replacePrinciplesForSource(
+    sourceId,
+    payload.provenance,
+    freshPrinciples,
+    { attachedQuotes, decisions },
+  );
+  if (payload.reviewCandidates.length > 0) {
+    await deps.repository.addReviewCandidates(payload.reviewCandidates);
+  }
+
+  return {
+    admitted: freshPrinciples.length,
+    merged: attachedQuotes.length,
+    review: payload.reviewCandidates.length,
   };
 }
 
