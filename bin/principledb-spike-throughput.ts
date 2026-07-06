@@ -8,7 +8,7 @@
 // NOT a unit test — a one-off measurement. Burns a small amount of Haiku API.
 //
 //   set -a; source ./.sandcastle/.env; set +a
-//   npx tsx bin/principledb-spike-throughput.ts <corpus-path> [--limit N] [--stage-p P] [--confirm-p C]
+//   npx tsx bin/principledb-spike-throughput.ts <corpus-path> [--limit N] [--stage-p P] [--confirm-p C] [--pool-max M]
 
 import { performance } from 'node:perf_hooks';
 import pg from 'pg';
@@ -48,19 +48,24 @@ async function count(pool: pg.Pool, table: string): Promise<number> {
 async function main(): Promise<void> {
   const corpus = process.argv[2];
   if (!corpus || corpus.startsWith('--')) {
-    throw new Error('usage: spike-throughput <corpus-path> [--limit N] [--stage-p P] [--confirm-p C]');
+    throw new Error('usage: spike-throughput <corpus-path> [--limit N] [--stage-p P] [--confirm-p C] [--pool-max M]');
   }
   const limit = flag('--limit', 8);
   const stageP = flag('--stage-p', 8);
   const confirmP = flag('--confirm-p', 16);
+  // Size the pg pool for Phase B's confirm fan-out (#34). Default sits at
+  // `max(confirmP + 8, 32)` so the pool has headroom above `confirmP` for
+  // background progress/staging writes without a runtime knob having to be
+  // set on every invocation.
+  const poolMax = flag('--pool-max', Math.max(confirmP + 8, 32));
 
   const dbUrl = process.env.DATABASE_URL;
   if (!dbUrl) throw new Error('DATABASE_URL not set (source .sandcastle/.env)');
 
   const schema = isolatedSchemaName();
-  console.log(`spike: isolated schema ${schema} (dropped on exit; never touches public)`);
+  console.log(`spike: isolated schema ${schema} (dropped on exit; never touches public); pool max=${poolMax}`);
   await createIsolatedSchema(dbUrl, schema);
-  const pool = poolForSchema(dbUrl, schema);
+  const pool = poolForSchema(dbUrl, schema, { max: poolMax });
 
   try {
     const repository = new PostgresCanonRepository(pool);

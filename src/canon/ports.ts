@@ -113,6 +113,21 @@ export interface CanonRepository {
     threshold: number,
     limit: number,
   ): Promise<SearchHit[]>;
+  // Batched vector prefilter for dedup: one round-trip that returns the
+  // top-`limit` candidates for EACH of `embeddings[i]`, in the same order.
+  // Semantically equivalent to calling `findSimilarPrinciplesExcludingSource`
+  // once per embedding — but Phase B of the two-phase seed pays that
+  // round-trip per Principle (~1 pooler hop per Principle, ~5–6s/confirm-
+  // equivalent measured in the #34 spike). Batching per Source removes it
+  // from the critical path without changing merge semantics: `dedup` still
+  // walks each Principle's candidates in the same order under the same
+  // `topK`/`threshold`, and the confirm loop is byte-for-byte the same.
+  findSimilarPrinciplesForBatch(
+    embeddings: number[][],
+    excludeSourceId: string,
+    threshold: number,
+    limit: number,
+  ): Promise<SearchHit[][]>;
   // Live relatedness (issue #7, PRD user story 32, ADR-0006). Top-`limit`
   // Principles whose cosine to `principleId`'s embedding is at or above
   // `threshold`, EXCLUDING the seed itself. Computed on read — nothing

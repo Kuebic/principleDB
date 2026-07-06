@@ -70,12 +70,19 @@ export async function dropIsolatedSchema(
   }
 }
 
-export function poolForSchema(connectionString: string, schema: string): pg.Pool {
+export function poolForSchema(
+  connectionString: string,
+  schema: string,
+  poolOptions: { max?: number } = {},
+): pg.Pool {
   // `extensions` is on the search_path because Supabase installs pgvector
   // there (not in `public`), and the `::vector` cast used by searchByEmbedding
   // needs to resolve the type without schema-qualifying every call site.
+  // `poolOptions.max` lets the throughput spike (#34) size the pool above
+  // pg.Pool's default of 10 so `confirmConcurrency` isn't clamped by DB fan-out.
   return new pg.Pool({
     connectionString,
     options: `-c search_path=${schema},public,extensions`,
+    ...(poolOptions.max !== undefined ? { max: poolOptions.max } : {}),
   });
 }

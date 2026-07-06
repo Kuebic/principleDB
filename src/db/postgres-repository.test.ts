@@ -323,6 +323,122 @@ describe.skipIf(!DATABASE_URL)('PostgresCanonRepository (integration)', () => {
     expect(rows[0].dedup_state).toBe('pending');
   });
 
+  describe('batched prefilter (issue #34, PRD #27)', () => {
+    // The batched Phase-B prefilter must return, per input embedding, the
+    // same top-K results as the per-embedding query — Postgres runs one
+    // LATERAL-join round-trip instead of N pooler hops. Equivalence is the
+    // load-bearing property; without it, the two-phase equivalence test
+    // (#32) can no longer trust dedup's merge decisions.
+    const seedForBatch: Source = {
+      id: 'batch-seed',
+      title: 'Batch seed',
+      author: 'Pastor X',
+      kind: 'sermon',
+      date: '2026-05-15',
+      text: 'Grace precedes obedience. Faith without works is dead. Love your neighbor as yourself.',
+      r2Key: null,
+      structureMap: { kind: 'none' },
+    };
+
+    it('returns the same top-K per input embedding as the per-embedding path (byte-identical)', async () => {
+      const seedProvider = new FakeIngestProvider(
+        () => [
+          { claim: 'Grace precedes obedience.', quote: 'Grace precedes obedience.' },
+          { claim: 'Faith without works is dead.', quote: 'Faith without works is dead.' },
+          { claim: 'Love your neighbor as yourself.', quote: 'Love your neighbor as yourself.' },
+        ],
+        provenanceA,
+        EMBEDDING_DIM,
+      );
+      await ingestSource(seedForBatch, { provider: seedProvider, repository: repo });
+
+      const queryProvider = new FakeIngestProvider(() => [], provenanceA, EMBEDDING_DIM);
+      const embeddings = await queryProvider.embed([
+        'Grace precedes obedience.',
+        'Faith without works is dead.',
+        'Love your neighbor as yourself.',
+      ]);
+
+      const perQuery = await Promise.all(
+        embeddings.map((e) =>
+          repo.findSimilarPrinciplesExcludingSource(e, 'unrelated-source', 0.3, 3),
+        ),
+      );
+      const batched = await repo.findSimilarPrinciplesForBatch(
+        embeddings,
+        'unrelated-source',
+        0.3,
+        3,
+      );
+
+      expect(batched).toEqual(perQuery);
+    });
+
+    it('preserves per-row order — each qidx returns its own results, not a global top-K', async () => {
+      const seedProvider = new FakeIngestProvider(
+        () => [
+          { claim: 'Grace precedes obedience.', quote: 'Grace precedes obedience.' },
+          { claim: 'Faith without works is dead.', quote: 'Faith without works is dead.' },
+          { claim: 'Love your neighbor as yourself.', quote: 'Love your neighbor as yourself.' },
+        ],
+        provenanceA,
+        EMBEDDING_DIM,
+      );
+      await ingestSource(seedForBatch, { provider: seedProvider, repository: repo });
+
+      const queryProvider = new FakeIngestProvider(() => [], provenanceA, EMBEDDING_DIM);
+      const embeddings = await queryProvider.embed([
+        'Grace precedes obedience.',
+        'Love your neighbor as yourself.',
+      ]);
+      const batched = await repo.findSimilarPrinciplesForBatch(
+        embeddings,
+        'unrelated-source',
+        0.3,
+        1,
+      );
+
+      expect(batched).toHaveLength(2);
+      expect(batched[0]![0]!.principle.claim).toBe('Grace precedes obedience.');
+      expect(batched[1]![0]!.principle.claim).toBe('Love your neighbor as yourself.');
+    });
+
+    it('empty input returns an empty array without hitting the DB', async () => {
+      const batched = await repo.findSimilarPrinciplesForBatch(
+        [],
+        'unrelated-source',
+        0.3,
+        5,
+      );
+      expect(batched).toEqual([]);
+    });
+
+    it('excludes principles from the given source across every input embedding', async () => {
+      const providerA = new FakeIngestProvider(
+        () => [{ claim: 'Grace precedes obedience.', quote: 'Grace precedes obedience.' }],
+        provenanceA,
+        EMBEDDING_DIM,
+      );
+      await ingestSource(sermon, { provider: providerA, repository: repo });
+
+      const queryProvider = new FakeIngestProvider(() => [], provenanceA, EMBEDDING_DIM);
+      const embeddings = await queryProvider.embed([
+        'Grace precedes obedience.',
+        'Grace precedes obedience.',
+      ]);
+      const batched = await repo.findSimilarPrinciplesForBatch(
+        embeddings,
+        sermon.id,
+        0.3,
+        5,
+      );
+      for (const hits of batched) {
+        expect(hits.every((h) => h.principle.id !== sermon.id)).toBe(true);
+        expect(hits).toHaveLength(0);
+      }
+    });
+  });
+
   describe('live relatedness (issue #7)', () => {
     const graceSermon: Source = {
       id: 'rel-serm1',

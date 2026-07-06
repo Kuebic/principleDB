@@ -111,4 +111,30 @@ describe('buildPrincipleDbDepsFromEnv', () => {
     const out = buildPrincipleDbDepsFromEnv(fullEnv);
     await expect(out.close()).resolves.toBeUndefined();
   });
+
+  it('threads PRINCIPLEDB_PG_POOL_MAX into the pg pool for the seed run (#34)', () => {
+    // Phase B's confirm concurrency plateaus at ~390/min because the default
+    // pg.Pool max=10 caps DB fan-out below `confirmConcurrency` (#34). The
+    // knob has to size the pool for a seed run explicitly; unset = pg.Pool's
+    // default (10 today), which is the right choice for interactive MCP use.
+    const out = buildPrincipleDbDepsFromEnv({ ...fullEnv, PRINCIPLEDB_PG_POOL_MAX: '48' });
+    built.push(out);
+    expect(out.pool.options.max).toBe(48);
+  });
+
+  it('uses pg.Pool defaults when PRINCIPLEDB_PG_POOL_MAX is unset (#34)', () => {
+    const out = buildPrincipleDbDepsFromEnv(fullEnv);
+    built.push(out);
+    // pg.Pool falls back to its built-in default (10) when max is not set.
+    expect(out.pool.options.max).toBe(10);
+  });
+
+  it('throws a clear error on a non-integer or non-positive PRINCIPLEDB_PG_POOL_MAX (#34)', () => {
+    expect(() =>
+      buildPrincipleDbDepsFromEnv({ ...fullEnv, PRINCIPLEDB_PG_POOL_MAX: 'abc' }),
+    ).toThrow(/PRINCIPLEDB_PG_POOL_MAX must be a positive integer/);
+    expect(() =>
+      buildPrincipleDbDepsFromEnv({ ...fullEnv, PRINCIPLEDB_PG_POOL_MAX: '0' }),
+    ).toThrow(/PRINCIPLEDB_PG_POOL_MAX must be a positive integer/);
+  });
 });

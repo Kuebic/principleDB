@@ -506,6 +506,132 @@ describe('conservative dedup at ingest', () => {
     }
   });
 
+  it('fetches candidates for the whole Source in ONE prefilter round-trip (#34, PRD #27)', async () => {
+    // Phase B's real wall is DB latency, not the LLM (#33 spike): one vector
+    // prefilter per Principle × ~13k Sources drains the pooler. The fix is a
+    // batched fetch — dedup asks the repo for candidates across every
+    // Principle in the Source in one call. Assert that: (a) the batched entry
+    // point runs exactly once per Source; (b) the per-Principle entry point
+    // is NOT called from dedup's hot path; (c) merge outcomes are unchanged.
+    const repository = new InMemoryRepository();
+    const seedSource: Source = {
+      id: 'batchSeedA',
+      title: 'Seed batch',
+      author: 'Pastor X',
+      kind: 'sermon',
+      date: '2026-05-15',
+      text: 'Grace precedes obedience. Faith without works is dead. Love your neighbor as yourself.',
+      r2Key: null,
+      structureMap: { kind: 'none' },
+    };
+    const seedProvider = new FakeIngestProvider(() => [
+      { claim: 'Grace precedes obedience.', quote: 'Grace precedes obedience.' },
+      { claim: 'Faith without works is dead.', quote: 'Faith without works is dead.' },
+      { claim: 'Love your neighbor as yourself.', quote: 'Love your neighbor as yourself.' },
+    ]);
+    await ingestSource(seedSource, { provider: seedProvider, repository });
+
+    let batchCalls = 0;
+    let perPrincipleCalls = 0;
+    const batchTracker: typeof repository = Object.create(repository);
+    batchTracker.findSimilarPrinciplesForBatch = async (...args) => {
+      batchCalls++;
+      return repository.findSimilarPrinciplesForBatch(...args);
+    };
+    batchTracker.findSimilarPrinciplesExcludingSource = async (...args) => {
+      perPrincipleCalls++;
+      return repository.findSimilarPrinciplesExcludingSource(...args);
+    };
+
+    const bSource: Source = {
+      id: 'batchB',
+      title: 'B batch',
+      author: 'Pastor Y',
+      kind: 'sermon',
+      date: '2026-05-22',
+      text: 'Grace precedes obedience. Faith without works is dead. Love your neighbor as yourself.',
+      r2Key: null,
+      structureMap: { kind: 'none' },
+    };
+    const providerB = new FakeIngestProvider(
+      () => [
+        { claim: 'Grace precedes obedience.', quote: 'Grace precedes obedience.' },
+        { claim: 'Faith without works is dead.', quote: 'Faith without works is dead.' },
+        { claim: 'Love your neighbor as yourself.', quote: 'Love your neighbor as yourself.' },
+      ],
+      undefined,
+      undefined,
+      () => ({ same: true, rationale: 'identical claim wording' }),
+    );
+    const items = await providerB.distil({ title: bSource.title, text: bSource.text });
+    const { principles } = admit(bSource, items, providerB.provenance);
+    const embeddings = await providerB.embed(principles.map((p) => p.claim));
+    principles.forEach((p, i) => (p.embedding = embeddings[i]!));
+
+    const result = await dedup(principles, bSource, providerB.provenance, {
+      provider: providerB,
+      repository: batchTracker,
+    });
+
+    expect(batchCalls).toBe(1);
+    expect(perPrincipleCalls).toBe(0);
+    // Sanity: the merge outcomes still match — the batched fetch changes
+    // WHERE the candidates come from, not WHICH candidates dedup walks.
+    expect(result.attachedQuotes).toHaveLength(3);
+    expect(result.freshPrinciples).toHaveLength(0);
+  });
+
+  it('batched-prefilter output is byte-identical to the per-principle path (#34, PRD #27)', async () => {
+    // The `findSimilarPrinciplesForBatch` contract: for embeddings[i], its
+    // result must equal `findSimilarPrinciplesExcludingSource(embeddings[i], …)`
+    // — same order, same score, same rows. This is the load-bearing property
+    // that lets dedup swap in the batched call without changing merge
+    // semantics (`dedup ≡ dedup` under either impl → the equivalence test
+    // for #32 stays green).
+    const repository = new InMemoryRepository();
+    const seedProvider = new FakeIngestProvider(() => [
+      { claim: 'Grace precedes obedience.', quote: 'Grace precedes obedience.' },
+      { claim: 'Faith without works is dead.', quote: 'Faith without works is dead.' },
+      { claim: 'Love your neighbor as yourself.', quote: 'Love your neighbor as yourself.' },
+    ]);
+    const seed: Source = {
+      id: 'contractSeed',
+      title: 'Contract seed',
+      author: 'Pastor X',
+      kind: 'sermon',
+      date: '2026-05-15',
+      text: 'Grace precedes obedience. Faith without works is dead. Love your neighbor as yourself.',
+      r2Key: null,
+      structureMap: { kind: 'none' },
+    };
+    await ingestSource(seed, { provider: seedProvider, repository });
+
+    // Three query embeddings drawn from claims OTHER than the ones seeded, so
+    // the prefilter returns non-trivial results per row. The distances differ
+    // per query, exercising the "each query gets its own top-K in its own
+    // order" contract.
+    const queryProvider = new FakeIngestProvider(() => []);
+    const queries = [
+      'Grace precedes obedience.',
+      'Faith without works is dead.',
+      'Love your neighbor as yourself.',
+    ];
+    const embeddings = await queryProvider.embed(queries);
+    const perQuery = await Promise.all(
+      embeddings.map((e) =>
+        repository.findSimilarPrinciplesExcludingSource(e, 'unrelated-source', 0.3, 3),
+      ),
+    );
+    const batched = await repository.findSimilarPrinciplesForBatch(
+      embeddings,
+      'unrelated-source',
+      0.3,
+      3,
+    );
+
+    expect(batched).toEqual(perQuery);
+  });
+
   it('does not consult the LLM when nothing in the Canon is above the prefilter threshold', async () => {
     const repository = new InMemoryRepository();
     let consulted = 0;

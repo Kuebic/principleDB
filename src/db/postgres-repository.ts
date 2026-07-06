@@ -35,6 +35,15 @@ function pgCosineDistance(column: PgColumn, value: number[]): SQL {
   return sql`${column} <=> ${JSON.stringify(value)}::vector`;
 }
 
+// pgvector serializes a `vector` column as a JSON-shaped text literal ("[1,2,…]"),
+// so parsing it is a single JSON.parse. Only called by the batched-prefilter
+// path, which reaches for raw SQL because drizzle's select builder does not
+// speak LATERAL — the typed builders elsewhere let drizzle hydrate the column
+// as number[] directly.
+function parseVector(raw: string): number[] {
+  return JSON.parse(raw) as number[];
+}
+
 export class PostgresCanonRepository implements CanonRepository {
   private readonly db: NodePgDatabase<typeof schema>;
 
@@ -256,6 +265,81 @@ export class PostgresCanonRepository implements CanonRepository {
     if (rows.length === 0) return [];
 
     return this.hydrateSearchHits(rows);
+  }
+
+  async findSimilarPrinciplesForBatch(
+    embeddings: number[][],
+    excludeSourceId: string,
+    threshold: number,
+    limit: number,
+  ): Promise<SearchHit[][]> {
+    // Batched Phase-B prefilter (#34, PRD #27). Same semantics as N calls to
+    // `findSimilarPrinciplesExcludingSource`, but one pooler round-trip: a
+    // VALUES table of (qidx, embedding) LATERAL-joined against `principle`
+    // returns each row's top-K in a single query. Removes one pooler hop per
+    // Principle from the confirm critical path.
+    if (embeddings.length === 0) return [];
+
+    const valueRows = embeddings.map(
+      (emb, i) => sql`(${i}::int, ${JSON.stringify(emb)}::vector)`,
+    );
+    const values = sql.join(valueRows, sql`, `);
+    const query = sql`
+      WITH q(qidx, q) AS (VALUES ${values})
+      SELECT q.qidx AS qidx,
+             p.id AS id,
+             p.claim AS claim,
+             p.embedding::text AS embedding,
+             p.distil_model AS distil_model,
+             p.distil_model_version AS distil_model_version,
+             p.distil_prompt_version AS distil_prompt_version,
+             (1 - (p.embedding <=> q.q))::float8 AS score
+      FROM q
+      JOIN LATERAL (
+        SELECT id, claim, embedding, distil_model, distil_model_version, distil_prompt_version
+        FROM ${schema.principle}
+        WHERE source_id <> ${excludeSourceId}
+          AND (1 - (embedding <=> q.q)) >= ${threshold}
+        ORDER BY embedding <=> q.q
+        LIMIT ${limit}
+      ) p ON true
+      ORDER BY q.qidx, (p.embedding <=> q.q)
+    `;
+
+    const result = await this.db.execute(query);
+    const rawRows = result.rows as Array<{
+      qidx: number;
+      id: string;
+      claim: string;
+      embedding: string;
+      distil_model: string;
+      distil_model_version: string;
+      distil_prompt_version: string;
+      score: number;
+    }>;
+
+    if (rawRows.length === 0) {
+      return embeddings.map(() => []);
+    }
+
+    // Group rows by qidx and hydrate all their Quotes in one round-trip.
+    const hydratable = rawRows.map((r) => ({
+      qidx: Number(r.qidx),
+      id: r.id,
+      claim: r.claim,
+      embedding: parseVector(r.embedding),
+      distilModel: r.distil_model,
+      distilModelVersion: r.distil_model_version,
+      distilPromptVersion: r.distil_prompt_version,
+      score: Number(r.score),
+    }));
+    const hydrated = await this.hydrateSearchHits(hydratable);
+
+    const grouped: SearchHit[][] = embeddings.map(() => []);
+    for (let i = 0; i < hydratable.length; i++) {
+      grouped[hydratable[i]!.qidx]!.push(hydrated[i]!);
+    }
+    return grouped;
   }
 
   async findRelatedPrinciples(

@@ -153,6 +153,22 @@ export class InMemoryRepository implements CanonRepository {
     return hits.slice(0, limit);
   }
 
+  async findSimilarPrinciplesForBatch(
+    embeddings: number[][],
+    excludeSourceId: string,
+    threshold: number,
+    limit: number,
+  ): Promise<SearchHit[][]> {
+    // Reference implementation: fan out to the per-embedding query. Postgres
+    // fuses this into a single LATERAL-join round-trip — the port contract
+    // asserts both return the same result set per index.
+    return Promise.all(
+      embeddings.map((e) =>
+        this.findSimilarPrinciplesExcludingSource(e, excludeSourceId, threshold, limit),
+      ),
+    );
+  }
+
   async findRelatedPrinciples(
     principleId: string,
     threshold: number,

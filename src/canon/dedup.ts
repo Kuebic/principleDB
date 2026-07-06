@@ -151,14 +151,25 @@ export async function dedup(
     }
   };
 
+  // Batched per-Source prefilter (#34, PRD #27). One round-trip fetches the
+  // top-K candidates for every Principle in this Source instead of one query
+  // per Principle. Semantically identical to the per-Principle call (same
+  // threshold/topK/exclude-source) — the confirm loop below reads
+  // candidatesByIdx[i] instead of re-querying. Removes ~1 pooler hop per
+  // Principle, which the #33 spike identified as Phase B's real wall.
+  const candidatesByIdx =
+    principles.length > 0
+      ? await ctx.repository.findSimilarPrinciplesForBatch(
+          principles.map((p) => p.embedding),
+          source.id,
+          threshold,
+          topK,
+        )
+      : [];
+
   const processPrinciple = async (idx: number): Promise<PrincipleSlot> => {
     const principle = principles[idx]!;
-    const candidates = await ctx.repository.findSimilarPrinciplesExcludingSource(
-      principle.embedding,
-      source.id,
-      threshold,
-      topK,
-    );
+    const candidates = candidatesByIdx[idx] ?? [];
 
     if (candidates.length === 0) {
       return { fresh: principle, decisions: [] };

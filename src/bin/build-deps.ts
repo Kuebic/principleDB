@@ -30,6 +30,13 @@ export interface BuildDepsEnv {
   // 5xx / connection errors — useful when a distil call shares an Opus rate
   // bucket with a live session. Parsed as a non-negative integer.
   PRINCIPLEDB_MAX_RETRIES?: string;
+  // Overrides `pg.Pool` max connection count (default 10) for the seed run
+  // (#34, PRD #27). Phase B's confirm fan-out (`confirmConcurrency`) sees no
+  // gain past ~10 workers because the pool caps DB round-trips there; a
+  // seed pass should raise this above the intended `confirmConcurrency`.
+  // Unset = pg.Pool default — the right choice for interactive MCP use
+  // where a bigger pool is wasted headroom.
+  PRINCIPLEDB_PG_POOL_MAX?: string;
 }
 
 export interface BuiltDeps {
@@ -58,8 +65,12 @@ export function buildPrincipleDbDepsFromEnv(env: BuildDepsEnv = process.env): Bu
   // Parse the retry override before opening the pool, so a bad value fails loud
   // instead of leaking a connection pool behind the throw.
   const maxRetries = parseMaxRetries(env.PRINCIPLEDB_MAX_RETRIES);
+  const poolMax = parsePgPoolMax(env.PRINCIPLEDB_PG_POOL_MAX);
 
-  const pool = new pg.Pool({ connectionString: env.DATABASE_URL });
+  const pool = new pg.Pool({
+    connectionString: env.DATABASE_URL,
+    ...(poolMax !== undefined ? { max: poolMax } : {}),
+  });
   const repository = new PostgresCanonRepository(pool);
   const embed = createOpenAIEmbedder({
     apiKey: env.OPENAI_API_KEY,
@@ -99,6 +110,20 @@ function parseMaxRetries(raw: string | undefined): number | undefined {
   if (!Number.isInteger(n) || n < 0) {
     throw new Error(
       `PRINCIPLEDB_MAX_RETRIES must be a non-negative integer, got "${raw}".`,
+    );
+  }
+  return n;
+}
+
+// Parse PRINCIPLEDB_PG_POOL_MAX into pg.Pool's `max` option. Unset ⇒ undefined
+// ⇒ pg's built-in default (10). Must be positive — a zero pool would block
+// every query indefinitely.
+function parsePgPoolMax(raw: string | undefined): number | undefined {
+  if (raw === undefined || raw === '') return undefined;
+  const n = Number(raw);
+  if (!Number.isInteger(n) || n <= 0) {
+    throw new Error(
+      `PRINCIPLEDB_PG_POOL_MAX must be a positive integer, got "${raw}".`,
     );
   }
   return n;
