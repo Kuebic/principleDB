@@ -947,6 +947,48 @@ describe('ingestDirectory — --phase dedup (Phase B)', () => {
     expect((await staging.listStaged()).length).toBe(0);
   });
 
+  it('Phase B ignores the seen-text store Phase A populated (shared-store regression)', async () => {
+    // Regression (found ingesting Divine Principle): production wires ONE
+    // persistent SeenTextStore shared across the separate Phase A and Phase B
+    // CLI invocations. Phase A records every staged Source's normalized-text
+    // hash; if Phase B ran the near-dupe pre-pass it would drop exactly those
+    // Sources from its plan and drain nothing, leaving the Canon empty. Phase
+    // B must dedup regardless of what Phase A recorded. The other Phase-A/B
+    // tests miss this because each call defaults to its own fresh in-memory
+    // store — only a SHARED store reproduces the bug.
+    const root = makeTmpCorpus();
+    writeFile(root, 'Talks/Talk-A.html', longHtml('Talk A'));
+    writeFile(root, 'Talks/Talk-B.html', longHtml('Talk B'));
+
+    const provider = new FakeIngestProvider((input: DistilInput) => [
+      { claim: `claim for ${input.title}.`, quote: 'sentence one is here' },
+    ]);
+    const repository = new InMemoryRepository();
+    const staging = new InMemoryStagingStore();
+    const seenText = new InMemorySeenTextStore(); // SHARED across both phases
+
+    await ingestDirectory(root, { provider, repository }, {
+      staging,
+      seenText,
+      phase: 'distil',
+    });
+    expect((await staging.listStaged()).length).toBe(2);
+
+    const phaseB = await ingestDirectory(root, { provider, repository }, {
+      staging,
+      seenText,
+      phase: 'dedup',
+    });
+
+    // Phase B planned BOTH Sources (pre-pass did not drop them) and drained
+    // them into the Canon, despite the shared store already holding their hashes.
+    expect(phaseB.plan.jobs).toHaveLength(2);
+    expect(phaseB.bulk!.completed).toHaveLength(2);
+    expect((await staging.listStaged()).length).toBe(0);
+    const [vec] = await provider.embed(['claim']);
+    expect(await repository.searchByEmbedding(vec!, 10)).toHaveLength(2);
+  });
+
   it('--phase dedup throws when no staging store is provided (wiring guard)', async () => {
     const root = makeTmpCorpus();
     writeFile(root, 'Talks/Talk-A.html', longHtml('Talk A'));
