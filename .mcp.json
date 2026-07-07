@@ -2,11 +2,8 @@
   "mcpServers": {
     "principledb": {
       "type": "stdio",
-      "command": "npx",
-      "args": [
-        "tsx",
-        "bin/principledb-mcp.ts"
-      ],
+      "command": "./bin/principledb-mcp-stdio.sh",
+      "args": [],
       "env": {}
     }
   }
