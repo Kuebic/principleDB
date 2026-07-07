@@ -253,19 +253,33 @@ export async function ingestDirectory(
   // have dropped anyway. Apply both an intra-batch Set (catches duplicate
   // pairs within this single run, before any record() lands in the store)
   // and the persistent SeenTextStore (catches resume / cross-run dupes).
+  //
+  // SKIPPED in Phase B (dedup): the pre-pass exists solely to avoid a
+  // redundant *distil* call, and Phase B does no distil — it drains staging.
+  // Worse, Phase A records every staged Source's hash in the SeenTextStore,
+  // which in production is ONE persistent Postgres store shared across the
+  // separate Phase A and Phase B invocations. Running the pre-pass here would
+  // therefore drop exactly the Sources Phase B needs to drain, leaving the
+  // Canon empty (the equivalence/spike harnesses never caught this because
+  // each phase got its own fresh in-memory store). Phase B must plan every
+  // walked Source and let the staging-index lookup decide what has a payload.
   const intraBatchSeen = new Set<string>();
   const hashByPath = new Map<string, string>();
   const keptJobs: PlannedJob[] = [];
   const duplicateSkips: SkippedFile[] = [];
-  for (const job of initialPlan.jobs) {
-    const hash = normalizedTextHash(job.cleanedText);
-    if (intraBatchSeen.has(hash) || (await seenText.seen(hash))) {
-      duplicateSkips.push({ path: job.path, reason: 'normalized-duplicate' });
-      continue;
+  if (phase === 'dedup') {
+    keptJobs.push(...initialPlan.jobs);
+  } else {
+    for (const job of initialPlan.jobs) {
+      const hash = normalizedTextHash(job.cleanedText);
+      if (intraBatchSeen.has(hash) || (await seenText.seen(hash))) {
+        duplicateSkips.push({ path: job.path, reason: 'normalized-duplicate' });
+        continue;
+      }
+      intraBatchSeen.add(hash);
+      hashByPath.set(job.path, hash);
+      keptJobs.push(job);
     }
-    intraBatchSeen.add(hash);
-    hashByPath.set(job.path, hash);
-    keptJobs.push(job);
   }
   const plan: JobPlan = {
     jobs: keptJobs,
