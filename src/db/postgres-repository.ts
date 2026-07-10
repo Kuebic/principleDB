@@ -273,6 +273,33 @@ export class PostgresCanonRepository implements CanonRepository {
     threshold: number,
     limit: number,
   ): Promise<SearchHit[][]> {
+    // Chunk the batch so a single query's bind payload stays bounded: each
+    // ::vector param carries a 1536-float embedding (~14 KB), so a source with
+    // ~1300 Principles would ship a ~20 MB query the pooler rejects. 128
+    // query-vectors ≈ 1.8 MB/query — safe, one round-trip per chunk. Results
+    // concatenate in order, preserving the caller's indexing.
+    if (embeddings.length === 0) return [];
+    const CHUNK = 128;
+    const out: SearchHit[][] = [];
+    for (let i = 0; i < embeddings.length; i += CHUNK) {
+      out.push(
+        ...(await this.findSimilarBatchChunk(
+          embeddings.slice(i, i + CHUNK),
+          excludeSourceId,
+          threshold,
+          limit,
+        )),
+      );
+    }
+    return out;
+  }
+
+  private async findSimilarBatchChunk(
+    embeddings: number[][],
+    excludeSourceId: string,
+    threshold: number,
+    limit: number,
+  ): Promise<SearchHit[][]> {
     // Batched Phase-B prefilter (#34, PRD #27). Same semantics as N calls to
     // `findSimilarPrinciplesExcludingSource`, but one pooler round-trip: a
     // VALUES table of (qidx, embedding) LATERAL-joined against `principle`
