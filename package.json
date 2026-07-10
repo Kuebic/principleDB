@@ -14,6 +14,7 @@
     "ingest:text": "tsx bin/principledb-ingest.ts",
     "ingest:html": "tsx bin/principledb-ingest-html.ts",
     "ingest:dir": "tsx bin/principledb-ingest-dir.ts",
+    "ingest:pdf": "tsx bin/principledb-ingest-pdf.ts",
     "doctor": "tsx bin/principledb-doctor.ts",
     "db:migrate": "tsx bin/principledb-migrate.ts",
     "typecheck": "tsc --noEmit",
@@ -31,6 +32,7 @@
   "dependencies": {
     "@anthropic-ai/sdk": "^0.105.0",
     "@modelcontextprotocol/sdk": "^1.29.0",
+    "aws4fetch": "^1.0.20",
     "drizzle-orm": "^0.45.2",
     "node-html-parser": "^8.0.4",
     "pg": "^8.22.0",
