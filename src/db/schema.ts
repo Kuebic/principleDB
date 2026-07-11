@@ -19,6 +19,7 @@
 import {
   boolean,
   doublePrecision,
+  index,
   integer,
   jsonb,
   pgTable,
@@ -41,17 +42,27 @@ export const source = pgTable('source', {
   structureMap: jsonb('structure_map').$type<StructureMap>().notNull(),
 });
 
-export const principle = pgTable('principle', {
-  id: text('id').primaryKey(),
-  sourceId: text('source_id')
-    .notNull()
-    .references(() => source.id, { onDelete: 'cascade' }),
-  claim: text('claim').notNull(),
-  embedding: vector('embedding', { dimensions: EMBEDDING_DIM }).notNull(),
-  distilModel: text('distil_model').notNull(),
-  distilModelVersion: text('distil_model_version').notNull(),
-  distilPromptVersion: text('distil_prompt_version').notNull(),
-});
+export const principle = pgTable(
+  'principle',
+  {
+    id: text('id').primaryKey(),
+    sourceId: text('source_id')
+      .notNull()
+      .references(() => source.id, { onDelete: 'cascade' }),
+    claim: text('claim').notNull(),
+    embedding: vector('embedding', { dimensions: EMBEDDING_DIM }).notNull(),
+    distilModel: text('distil_model').notNull(),
+    distilModelVersion: text('distil_model_version').notNull(),
+    distilPromptVersion: text('distil_prompt_version').notNull(),
+  },
+  (table) => [
+    // HNSW ANN index so dedup's vector prefilter is an index scan, not a seq
+    // scan. Exact search over the growing Canon (24k+ Principles) makes the
+    // batched prefilter time out; `vector_cosine_ops` matches the `<=>`
+    // (cosine) distance the prefilter orders by.
+    index('principle_embedding_hnsw').using('hnsw', table.embedding.op('vector_cosine_ops')),
+  ],
+);
 
 export const quote = pgTable('quote', {
   id: text('id').primaryKey(),
