@@ -204,8 +204,17 @@ export class AnthropicIngestProvider implements IngestProvider {
 
     for (const block of response.content) {
       if (block.type === 'tool_use' && block.name === 'extract_principles') {
+        // A tool call truncated at max_tokens yields incomplete JSON, so the SDK
+        // surfaces `principles` as a partial/absent value. Fail loud rather than
+        // silently drop the window's Principles (or crash later on `.filter`) —
+        // the caller should distil in smaller windows (maxDistilChars).
+        if (response.stop_reason === 'max_tokens') {
+          throw new Error(
+            `distil output truncated at max_tokens=${this.maxTokens} for "${input.title}" — reduce the distil window size`,
+          );
+        }
         const parsed = block.input as DistilToolInput;
-        const items = parsed?.principles ?? [];
+        const items = Array.isArray(parsed?.principles) ? parsed.principles : [];
         return items
           .filter(
             (it): it is { claim: string; quote: string } =>

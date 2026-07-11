@@ -70,6 +70,30 @@ describe('AnthropicIngestProvider (unit)', () => {
     });
   });
 
+  it('throws when the distil tool call is truncated at max_tokens (no silent loss / crash)', async () => {
+    const create = vi.fn(
+      async (params: CreateParams) =>
+        ({
+          id: 'msg',
+          type: 'message',
+          role: 'assistant',
+          model: params.model,
+          stop_reason: 'max_tokens',
+          stop_sequence: null,
+          usage: { input_tokens: 0, output_tokens: 0 },
+          // Truncated tool JSON: `principles` came back partial/non-array.
+          content: [
+            { type: 'tool_use', id: 't', name: 'extract_principles', input: { principles: 'trunc' } },
+          ],
+        }) as unknown as Anthropic.Message,
+    );
+    const client = { messages: { create } } as unknown as Anthropic;
+    const provider = new AnthropicIngestProvider({ client, embed: noEmbed });
+    await expect(provider.distil({ title: 'Big chapter', text: 'x' })).rejects.toThrow(
+      /truncated at max_tokens/,
+    );
+  });
+
   it('constructs from an OAuth bearer token (CLAUDE_CODE_OAUTH_TOKEN) without an API key', () => {
     // No stub client: this exercises the real SDK-construction branch for the
     // authToken credential. Provenance must still stamp.
