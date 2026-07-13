@@ -1,17 +1,23 @@
 // Hono app for the public web surface (ADR-0015, ADR-0016). One Node process,
-// two adapters over the shared `src/canon/` core:
-//   • GET /api/search — core-direct search (no MCP hop, no LLM per #40); returns
-//     the same SearchHitResponse shape the stdio MCP tool wraps.
-//   • POST /mcp — stateless Streamable HTTP transport; a fresh server + fresh
-//     transport instantiated per request (readOnly: true so the two write tools
-//     are absent). GET/DELETE /mcp return 405.
+// adapters over the shared `src/canon/` core:
+//   • GET /            — the public Canon search page (Slice W2, #40/#47);
+//     server-rendered HTML over `searchPrinciplesTool`. LLM-free.
+//   • GET /api/search  — core-direct search JSON (no MCP hop, no LLM per #40);
+//     returns the same SearchHitResponse shape the stdio MCP tool wraps.
+//   • GET /api/related — core-direct related JSON for the on-demand expander
+//     on the search page (fetched on click, not eager).
+//   • POST /mcp        — stateless Streamable HTTP transport; a fresh server +
+//     fresh transport instantiated per request (readOnly: true so the two
+//     write tools are absent). GET/DELETE /mcp return 405.
 // The site data path never hops through an MCP client — dogfooding lives in the
 // smoke test (mcp-smoke.test.ts), not on this path (ADR-0015).
 
 import { WebStandardStreamableHTTPServerTransport } from '@modelcontextprotocol/sdk/server/webStandardStreamableHttp.js';
 import { Hono } from 'hono';
 import { createPrincipleDbServer, type ServerDeps } from '../mcp/server';
+import { relatedPrinciplesTool } from '../mcp/related-principles-tool';
 import { searchPrinciplesTool } from '../mcp/search-principles-tool';
+import { renderSearchPage } from './render-search-page';
 
 export interface WebAppOptions {
   // Origin values allowed on cross-origin requests (DNS-rebinding protection).
@@ -24,6 +30,20 @@ export interface WebAppOptions {
 export function createWebApp(deps: ServerDeps, options: WebAppOptions = {}): Hono {
   const app = new Hono();
   const { allowedOrigins } = options;
+
+  // GET / — the public Canon search page (Slice W2, #40/#47). Server-rendered
+  // over `searchPrinciplesTool` so results share the exact shape /api/search
+  // returns. LLM-free by construction (embedding + pgvector); related hits
+  // are DEFERRED and fetched on click via /api/related.
+  app.get('/', async (c) => {
+    const rawQuery = c.req.query('q');
+    const query = typeof rawQuery === 'string' ? rawQuery : undefined;
+    if (query === undefined || query.trim() === '') {
+      return c.html(renderSearchPage({}));
+    }
+    const response = await searchPrinciplesTool({ query }, deps);
+    return c.html(renderSearchPage({ query, response }));
+  });
 
   // GET /api/search — core-direct, no MCP hop. Reuses the existing tool
   // handler so the site and the MCP endpoint return byte-identical hit shapes.
@@ -39,6 +59,27 @@ export function createWebApp(deps: ServerDeps, options: WebAppOptions = {}): Hon
     }
     const response = await searchPrinciplesTool(
       { query, ...(limit !== undefined ? { limit } : {}) },
+      deps,
+    );
+    return c.json(response);
+  });
+
+  // GET /api/related — core-direct, live pgvector relatedness for one seed
+  // Principle. Powers the on-demand related expander on the public search
+  // page (Slice W2 — not eager, fetched only when the user clicks). Same
+  // response shape as the MCP `related_principles` tool.
+  app.get('/api/related', async (c) => {
+    const principleId = c.req.query('principleId');
+    if (!principleId || principleId.trim() === '') {
+      return c.json({ error: 'missing required query parameter `principleId`' }, 400);
+    }
+    const limitRaw = c.req.query('limit');
+    const limit = parseLimit(limitRaw);
+    if (limit instanceof Error) {
+      return c.json({ error: limit.message }, 400);
+    }
+    const response = await relatedPrinciplesTool(
+      { principleId, ...(limit !== undefined ? { limit } : {}) },
       deps,
     );
     return c.json(response);

@@ -32,6 +32,7 @@ export interface SearchHitResponse {
     kind: SourceKind;
   };
   quote: {
+    id: string;
     text: string;
     label: string;
     span: Span;
@@ -76,6 +77,7 @@ export async function toSearchHitResponses(
         kind: source.kind,
       },
       quote: {
+        id: quote.id,
         text: source.text.slice(quote.span.start, quote.span.end),
         label: deriveLabel(source.structureMap, quote.span, source.text.length),
         span: quote.span,

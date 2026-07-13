@@ -91,6 +91,70 @@ describe('GET /api/search (core-direct, ADR-0015)', () => {
   });
 });
 
+describe('GET / — public Canon search page (Slice W2, #47)', () => {
+  it('renders the search page with a form when no query is given', async () => {
+    const deps = fixtureDeps();
+    const app = createWebApp(deps);
+    const res = await app.request('/');
+    expect(res.status).toBe(200);
+    expect(res.headers.get('content-type') ?? '').toContain('text/html');
+    const body = await res.text();
+    expect(body).toContain('<meta name="robots" content="noindex"');
+    expect(body).toMatch(/<form\b[^>]*>/i);
+    expect(body).toMatch(/action=["']\/["']/i);
+    expect(body).toMatch(/method=["']get["']/i);
+  });
+
+  it('renders answer-shaped hits when a query returns results', async () => {
+    const deps = fixtureDeps();
+    await ingestSource(sermon, deps);
+    const app = createWebApp(deps);
+    const res = await app.request('/?q=grace+and+obedience');
+    expect(res.status).toBe(200);
+    const body = await res.text();
+    expect(body).toContain('Grace precedes obedience.');
+    expect(body).toContain('Grace and obedience');
+    expect(body).toContain('Pastor X');
+  });
+
+  it('renders an empty-state message when the query returns no hits', async () => {
+    const deps = fixtureDeps();
+    const app = createWebApp(deps);
+    const res = await app.request('/?q=nothing');
+    expect(res.status).toBe(200);
+    const body = await res.text();
+    expect(body.toLowerCase()).toContain('no results');
+  });
+});
+
+describe('GET /api/related — on-demand relatedness for the search page (#47)', () => {
+  it('returns related hits for a known seed principle', async () => {
+    const provider = new FakeIngestProvider(() => [
+      { claim: 'Grace precedes obedience.', quote: 'Grace precedes obedience.' },
+      { claim: 'Obedience flows from grace.', quote: 'We are loved first.' },
+    ]);
+    const repository = new InMemoryRepository();
+    const deps = { provider, repository };
+    await ingestSource(sermon, deps);
+    const app = createWebApp(deps);
+    const search = await app.request('/api/search?q=grace');
+    const searchBody = (await search.json()) as SearchPrinciplesResponse;
+    const seedId = searchBody.hits[0]!.principleId;
+    const res = await app.request(`/api/related?principleId=${encodeURIComponent(seedId)}`);
+    expect(res.status).toBe(200);
+    const body = (await res.json()) as { related: Array<{ claim: string }> };
+    expect(body.related.length).toBeGreaterThan(0);
+    expect(body.related[0]!.claim).not.toBe(searchBody.hits[0]!.claim);
+  });
+
+  it('rejects a missing `principleId` with 400', async () => {
+    const deps = fixtureDeps();
+    const app = createWebApp(deps);
+    const res = await app.request('/api/related');
+    expect(res.status).toBe(400);
+  });
+});
+
 describe('GET/DELETE /mcp — 405 in stateless mode', () => {
   it('GET /mcp returns 405', async () => {
     const app = createWebApp({
