@@ -37,6 +37,7 @@ export function renderReaderPage(
   const body = renderBody(data.source.text, sections, data.quote.span);
   const backHref = options.back ?? '/';
   const kindWord = escapeHtml(data.source.kind);
+  const pillText = escapeHtml(data.quote.label || data.source.kind);
   const shareHref = buildTextFragmentHref(
     data.source.text.slice(data.quote.span.start, data.quote.span.end),
   );
@@ -55,7 +56,7 @@ export function renderReaderPage(
   <p class="backlink"><a href="${escapeAttribute(backHref)}">&larr; back to results</a></p>
   <div class="grid">
     <aside class="rail" aria-label="Source outline">
-      <span class="label-pill">${escapeHtml(data.quote.label || kindWord)}</span>
+      <span class="label-pill">${pillText}</span>
       <nav class="toc">
         <h4>In this source</h4>
         ${outline}
@@ -163,18 +164,13 @@ function renderPortion(text: string, regionStart: number, regionEnd: number, spa
   const region = text.slice(regionStart, regionEnd);
   const localStart = Math.max(0, span.start - regionStart);
   const localEnd = Math.max(0, Math.min(region.length, span.end - regionStart));
-  const markInRegion = localEnd > localStart;
 
-  const beforeMark = region.slice(0, localStart);
-  const inMark = markInRegion ? region.slice(localStart, localEnd) : '';
-  const afterMark = markInRegion ? region.slice(localEnd) : region;
+  if (localEnd <= localStart) return renderParagraphs(region);
 
-  const beforeHtml = renderParagraphs(beforeMark);
-  const markHtml = markInRegion ? `<mark id="quote">${escapeHtml(inMark)}</mark>` : '';
-  const afterHtml = renderParagraphs(afterMark);
-
-  if (!markInRegion) return beforeHtml || afterHtml || '';
-  return `${beforeHtml}${markHtml}${afterHtml}`;
+  const before = renderParagraphs(region.slice(0, localStart));
+  const inside = escapeHtml(region.slice(localStart, localEnd));
+  const after = renderParagraphs(region.slice(localEnd));
+  return `${before}<mark id="quote">${inside}</mark>${after}`;
 }
 
 function renderParagraphs(text: string): string {
