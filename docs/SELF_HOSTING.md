@@ -202,6 +202,30 @@ Once connected, the client advertises a set of Canon tools:
 To smoke-test the wiring without a client: ask Claude Desktop "what tools do
 you have available?" and confirm the above appear.
 
+## 8. (Planned) Run the public web + remote MCP surface
+
+> **Status: planned, not yet shipped** (ADR-0016, map #37). The stdio MCP server
+> above is the baseline every Owner runs today. The public surface below is an
+> *optional* additional adapter over the same core — documented here so you know
+> what's coming; the steps land when the web slices are built.
+
+Everything above binds the Canon to **stdio** for your own AI client. The optional
+public surface adds a second entry point on the *same* one-process Node server
+(ADR-0015): a website where anyone with the link can type a thought and get
+connected Quotes (LLM-free — one embedding + pgvector, #40), plus a public remote
+MCP endpoint at `POST /mcp` (read-only tools) that others can connect their own AI
+to. It is opt-in: run it only if you want a public face.
+
+- **Same runtime, same env.** Plain Node (ADR-0016) — no Cloudflare account or
+  rewrite required. The planned `npm run serve` boots the Hono server that mounts
+  both the site routes and `/mcp`; `npm run mcp` (stdio) keeps working unchanged.
+- **Hosting.** Any always-on box: Fly.io (recommended, ~$3-4/mo, managed TLS),
+  a VPS (Hetzner), or your own box behind a Cloudflare Tunnel ($0, uptime tied to
+  the box). Put Cloudflare in front for per-IP rate limiting.
+- **Exposure.** The public MCP endpoint exposes only the read tools; the write
+  tools (`list_review_queue`, `resolve_review_item`) stay off the anonymous
+  surface. See the map (#37) for the exposure/copyright stance.
+
 ## Portability
 
 Core data is standard Postgres — `pg_dump` is your exit ramp:
