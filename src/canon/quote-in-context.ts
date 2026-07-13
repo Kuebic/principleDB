@@ -23,9 +23,8 @@ const DEFAULT_CONTEXT_CHARS = 280;
 // get_quote_in_context call can materialize, so a hostile client can't
 // request a multi-MB slice on every hit. Matches the MCP tool schema's
 // contextChars.max in `mcp/server.ts`; the clamp here is defense-in-depth
-// for the core function itself (called from the Reader page's sibling
-// getQuoteReader shares the same repository but returns whole Source text —
-// that path has no window, on purpose per #39).
+// for the core function itself. Sibling `getQuoteReader` returns the whole
+// Source text on purpose (#39), so no cap applies there.
 export const MAX_CONTEXT_CHARS = 4000;
 
 export interface GetQuoteInContextDeps {

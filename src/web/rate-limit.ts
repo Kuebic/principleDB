@@ -66,12 +66,11 @@ export function createRateLimiter(options: RateLimitOptions): MiddlewareHandler 
       bucket.tokens = Math.min(capacity, bucket.tokens + elapsed * refillPerMs);
     }
     bucket.last = t;
+    buckets.set(key, bucket);
     if (bucket.tokens < 1) {
-      buckets.set(key, bucket);
       return c.json({ error: 'Too many requests' }, 429);
     }
     bucket.tokens -= 1;
-    buckets.set(key, bucket);
     await next();
   };
 }

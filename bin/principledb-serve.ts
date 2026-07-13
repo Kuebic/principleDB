@@ -9,7 +9,7 @@
 // Slice W4 (#49) hardening applied here:
 //   • Wrap the ingest provider with a short-TTL query-embedding cache so
 //     repeated queries within the TTL skip the OpenAI embed round-trip.
-//   • Turn on per-IP in-app rate limiting (~60/min per IP, burst 20) —
+//   • Turn on per-IP in-app rate limiting (~60/min per IP, capacity = burst) —
 //     defense-in-depth behind Cloudflare edge rules (W6 deploy config).
 //   • Turn on per-request IP+UA access logging.
 //   • Default PRINCIPLEDB_STATEMENT_TIMEOUT_MS to 5000ms so every pool
