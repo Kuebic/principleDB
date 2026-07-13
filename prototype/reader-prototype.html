@@ -1,0 +1,469 @@
+<!doctype html>
+<!--
+  PROTOTYPE — throwaway. Issue #43: quote-in-context "Reader" for the public Canon search.
+  Three structurally-different Reader variants, switchable via ?variant=A|B|C and a
+  floating bottom bar (arrows + ← → keys). A shared answer-shaped search surface is the
+  entry point so the Reader is judged inside the flow that reaches it (#40).
+  Mock data mirrors SearchHitResponse. No framework, no persistence, no backend.
+  NOT production code — fold the winner into the real page and bin the rest (branch).
+-->
+<html lang="en">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<meta name="robots" content="noindex" />
+<title>Reader prototype — principleDB #43</title>
+<style>
+  :root {
+    --ink: #23201c;
+    --ink-soft: #5b544a;
+    --ink-faint: #8a8073;
+    --paper: #faf7f1;
+    --paper-2: #f2ece1;
+    --card: #ffffff;
+    --line: #e4dccd;
+    --accent: #9a6a2f;
+    --accent-soft: #f3e3c9;
+    --mark: #ffe9a8;
+    --mark-edge: #e8c65a;
+    --shadow: 0 1px 2px rgba(60,50,35,.06), 0 8px 24px rgba(60,50,35,.08);
+    --serif: "Iowan Old Style", "Palatino Linotype", Palatino, Georgia, serif;
+    --sans: ui-sans-serif, system-ui, -apple-system, "Segoe UI", Roboto, sans-serif;
+  }
+  * { box-sizing: border-box; }
+  html, body { margin: 0; }
+  body {
+    background: var(--paper);
+    color: var(--ink);
+    font-family: var(--sans);
+    line-height: 1.5;
+    -webkit-font-smoothing: antialiased;
+  }
+  a { color: var(--accent); text-decoration: none; }
+  a:hover { text-decoration: underline; }
+  .wrap { max-width: 1120px; margin: 0 auto; padding: 24px 20px 120px; }
+
+  /* ---- shared: top bar ---- */
+  .topbar { display:flex; align-items:center; gap:14px; padding:8px 2px 20px; }
+  .brand { font-weight:700; letter-spacing:-.01em; font-size:18px; }
+  .brand small { color: var(--ink-faint); font-weight:500; }
+  .searchbox { flex:1; display:flex; align-items:center; gap:10px;
+    background: var(--card); border:1px solid var(--line); border-radius:999px;
+    padding:9px 16px; box-shadow: var(--shadow); }
+  .searchbox input { border:0; outline:0; flex:1; font-size:15px; background:transparent; color:var(--ink); }
+  .searchbox .k { color: var(--ink-faint); font-size:13px; }
+
+  /* ---- shared: answer-shaped search results (#40) ---- */
+  .lead { font-family: var(--serif); font-size:20px; color: var(--ink-soft);
+    margin: 6px 2px 18px; }
+  .lead b { color: var(--ink); font-weight:600; }
+  .cards { display:flex; flex-direction:column; gap:14px; }
+  .hit { background: var(--card); border:1px solid var(--line); border-radius:14px;
+    padding:18px 20px; box-shadow: var(--shadow); }
+  .hit .claim { font-weight:600; font-size:16px; margin:0 0 10px; }
+  .hit blockquote { margin:0; padding:10px 14px; border-left:3px solid var(--accent-soft);
+    background: var(--paper-2); border-radius:0 8px 8px 0; font-family: var(--serif);
+    font-size:16px; color: var(--ink); }
+  .hit .meta { display:flex; flex-wrap:wrap; gap:8px 14px; align-items:center;
+    margin-top:12px; font-size:13px; color: var(--ink-faint); }
+  .hit .meta .src { color: var(--ink-soft); }
+  .hit .meta .open { margin-left:auto; }
+  .chip { display:inline-flex; align-items:center; gap:6px; font-size:12.5px;
+    background: var(--paper-2); border:1px solid var(--line); color: var(--ink-soft);
+    border-radius:999px; padding:3px 10px; cursor:pointer; }
+  .chip:hover { border-color: var(--accent); color: var(--accent); }
+  .related { margin-top:12px; padding-top:12px; border-top:1px dashed var(--line); display:none; }
+  .related.open { display:block; }
+  .related h4 { margin:0 0 8px; font-size:12px; text-transform:uppercase;
+    letter-spacing:.06em; color: var(--ink-faint); }
+  .related .r { font-size:14px; padding:6px 0; border-bottom:1px solid var(--paper-2); }
+  .related .r:last-child { border-bottom:0; }
+  .expand { cursor:pointer; color: var(--accent); font-size:13px; font-weight:600; }
+
+  /* ---- reader shared bits ---- */
+  mark.q { background: linear-gradient(transparent 8%, var(--mark) 8% 92%, transparent 92%);
+    box-shadow: inset 0 0 0 1px var(--mark-edge); border-radius:2px; padding:1px 2px; color: var(--ink); }
+  .label-pill { display:inline-flex; align-items:center; gap:7px; font-size:13px;
+    background: var(--accent-soft); color:#7a5220; border-radius:999px; padding:4px 12px; font-weight:600; }
+  .prose { font-family: var(--serif); font-size:19px; line-height:1.7; color: var(--ink); }
+  .prose p { margin: 0 0 1.15em; }
+  .backlink { font-size:14px; }
+  .btn { display:inline-flex; align-items:center; gap:7px; font-size:13.5px; font-weight:600;
+    border:1px solid var(--line); background: var(--card); color: var(--ink-soft);
+    border-radius:9px; padding:7px 12px; cursor:pointer; }
+  .btn:hover { border-color: var(--accent); color: var(--accent); }
+  .foot { margin-top:40px; padding-top:18px; border-top:1px solid var(--line);
+    font-size:12.5px; color: var(--ink-faint); line-height:1.6; }
+  .sectionmark { scroll-margin-top: 20px; }
+
+  /* ===== Variant A: continuous scroll + sticky context rail ===== */
+  .A .grid { display:grid; grid-template-columns: 1fr 260px; gap:36px; align-items:start; }
+  .A .rail { position:sticky; top:20px; display:flex; flex-direction:column; gap:14px;
+    background: var(--card); border:1px solid var(--line); border-radius:14px; padding:16px; box-shadow: var(--shadow); }
+  .A .rail .navq { display:flex; gap:8px; }
+  .A .reader { max-width:64ch; }
+  @media (max-width: 860px){ .A .grid{ grid-template-columns:1fr; } .A .rail{ position:static; order:-1; } }
+
+  /* ===== Variant B: split — outline + reading pane ===== */
+  .B .split { display:grid; grid-template-columns: 240px 1fr; gap:0; border:1px solid var(--line);
+    border-radius:16px; overflow:hidden; box-shadow: var(--shadow); background: var(--card); min-height:70vh; }
+  .B .toc { background: var(--paper-2); border-right:1px solid var(--line); padding:16px 12px; overflow:auto; }
+  .B .toc h4 { margin:2px 8px 10px; font-size:11.5px; letter-spacing:.06em; text-transform:uppercase; color:var(--ink-faint); }
+  .B .toc a { display:block; padding:7px 10px; border-radius:8px; font-size:13.5px; color:var(--ink-soft); }
+  .B .toc a.here { background: var(--accent-soft); color:#7a5220; font-weight:600; }
+  .B .toc a:hover { background:#e8ddc9; text-decoration:none; }
+  .B .pane { padding:26px 32px; overflow:auto; }
+  .B .pane .prose { max-width:62ch; }
+  @media (max-width: 760px){ .B .split{ grid-template-columns:1fr; } .B .toc{ border-right:0; border-bottom:1px solid var(--line);} }
+
+  /* ===== Variant C: focused card → expand to full source ===== */
+  .C .focus { max-width: 680px; margin: 0 auto; }
+  .C .qcard { background: var(--card); border:1px solid var(--line); border-radius:18px;
+    padding:26px 28px; box-shadow: var(--shadow); }
+  .C .qcard .before, .C .qcard .after { color: var(--ink-faint); font-family: var(--serif); font-size:16px; }
+  .C .qcard .theq { font-family: var(--serif); font-size:22px; line-height:1.55; margin:10px 0; }
+  .C .chips { display:flex; flex-wrap:wrap; gap:8px; margin-top:16px; }
+  .C .full { margin-top:18px; border-top:1px solid var(--line); padding-top:18px; display:none; }
+  .C .full.open { display:block; }
+  .C .fulltoggle { width:100%; justify-content:center; margin-top:16px; }
+
+  /* ===== Variant D: synthesis — sticky source outline + full scroll reader ===== */
+  .D .grid { display:grid; grid-template-columns: 250px 1fr; gap:44px; align-items:start; }
+  .D .rail { position:sticky; top:20px; max-height:calc(100vh - 40px); overflow:auto;
+    padding-right:6px; }
+  .D .rail .label-pill { margin-bottom:16px; }
+  .D .toc h4 { margin:0 0 8px; font-size:11.5px; letter-spacing:.06em; text-transform:uppercase; color:var(--ink-faint); }
+  .D .toc a { display:block; padding:7px 12px; border-radius:0 8px 8px 0; font-size:13.5px;
+    color:var(--ink-soft); border-left:2px solid var(--line); transition:all .12s; }
+  .D .toc a.here { color:#7a5220; font-weight:600; border-left-color:var(--accent); background:var(--accent-soft); }
+  .D .toc a:hover { color:var(--accent); text-decoration:none; }
+  .D .quiet { display:flex; gap:18px; margin-top:16px; padding-top:14px; border-top:1px solid var(--line); font-size:13px; }
+  .D .quiet a { color:var(--ink-faint); }
+  .D .quiet a:hover { color:var(--accent); }
+  .D .reader { max-width:64ch; }
+  @media (max-width: 860px){ .D .grid{ grid-template-columns:1fr; } .D .rail{ position:static; max-height:none; order:-1; } }
+
+  /* ---- floating prototype switcher ---- */
+  .switcher { position:fixed; left:50%; bottom:20px; transform:translateX(-50%);
+    display:flex; align-items:center; gap:4px; background:#1c1a17; color:#fff;
+    border-radius:999px; padding:6px 8px; box-shadow:0 8px 30px rgba(0,0,0,.35); z-index:9999;
+    font-family: var(--sans); }
+  .switcher button { background:transparent; border:0; color:#fff; font-size:18px; cursor:pointer;
+    padding:4px 10px; border-radius:999px; line-height:1; }
+  .switcher button:hover { background:rgba(255,255,255,.14); }
+  .switcher .lab { font-size:13px; padding:0 10px; white-space:nowrap; min-width:210px; text-align:center; }
+  .switcher .lab b { color:#ffd98a; }
+  .toggleview { position:fixed; right:16px; bottom:22px; z-index:9999; }
+</style>
+</head>
+<body>
+<div class="wrap" id="app"></div>
+
+<div class="switcher" id="switcher"></div>
+
+<script>
+// ---------------- mock data (mirrors SearchHitResponse) ----------------
+const SOURCE = {
+  id: "src_csg_312",
+  title: "The Purpose of Creation and the Way of True Love",
+  author: "Sun Myung Moon",
+  kind: "book",
+  // one continuous text; the quote is a located span (char offsets) into it
+  label: "Book 3 · Chapter 2 · p. 412",
+  sections: [
+    { label: "Ch. 2 — Origin of Love", at: 0 },
+    { label: "The Give-and-Take of Heart", at: 1 },
+    { label: "Why Creation Needs an Object", at: 2, here: true },
+    { label: "Love Completed in Return", at: 3 },
+    { label: "The Order of True Family", at: 4 },
+  ],
+  paras: [
+    "When we ask why anything exists at all, we are really asking about the heart behind existence. Nothing makes itself. A thing comes into being because someone first wished for it, imagined it, and delighted in the thought of it before it ever appeared.",
+    "Heart is the impulse to feel joy through loving. It cannot be satisfied alone. However rich a person may be within, joy does not rise until that inner fullness meets someone who can receive it and answer back.",
+    "For this reason the Creator did not remain alone. Love, by its own nature, requires an object — a partner who can receive it and return it freely. A love that has no one to receive it is not yet love; it is only longing. So the whole of creation is the object body prepared so that heart would not stay unfulfilled.",
+    "And when love is returned, it does not come back unchanged. It comes back multiplied, carrying the life of the one who received it. This is the secret of increase: giving does not empty the giver but enlarges both.",
+    "Understood this way, the family is not one arrangement among many. It is the school of heart, the first place where giving and receiving are practiced until they become the person's own nature, and the pattern from which every larger community is drawn.",
+  ],
+  // the quote span lands inside para 2 ("Love, by its own nature ... freely.")
+  quotePara: 2,
+  quoteText: "Love, by its own nature, requires an object — a partner who can receive it and return it freely.",
+};
+
+const HITS = [
+  {
+    principleId: "p_001",
+    claim: "Love requires an object to be fulfilled; it cannot exist in isolation.",
+    score: 0.89,
+    source: { title: SOURCE.title, author: SOURCE.author, kind: "book", label: "p. 412" },
+    quote: "Love, by its own nature, requires an object — a partner who can receive it and return it freely.",
+    related: [
+      "Joy arises only through a give-and-take relationship, never alone.",
+      "Creation is the object body prepared so that heart would be fulfilled.",
+      "A love with no one to receive it is longing, not yet love.",
+    ],
+  },
+  {
+    principleId: "p_002",
+    claim: "Giving multiplies rather than depletes; returned love enlarges both parties.",
+    score: 0.81,
+    source: { title: SOURCE.title, author: SOURCE.author, kind: "book", label: "p. 413" },
+    quote: "It comes back multiplied, carrying the life of the one who received it.",
+    related: [
+      "Increase is the fruit of give-and-take, not of accumulation.",
+      "The order of true love is to give first and receive as a result.",
+    ],
+  },
+  {
+    principleId: "p_003",
+    claim: "The family is the training ground where the heart's nature is formed.",
+    score: 0.76,
+    source: { title: SOURCE.title, author: SOURCE.author, kind: "book", label: "p. 415" },
+    quote: "It is the school of heart, the first place where giving and receiving are practiced until they become the person's own nature.",
+    related: [
+      "Larger communities draw their pattern from the family.",
+      "Heart becomes one's nature only through repeated practice.",
+    ],
+  },
+];
+
+const FOOTER = `Works are shared for study by readers who already hold these teachings. `
+  + `All texts © their respective authors and publishers. This page is unlisted and not indexed. `
+  + `To request removal of any material, contact `;
+const REMOVE_EMAIL = "removals@principledb.example";
+
+// ---------------- helpers ----------------
+const $ = (s, r=document) => r.querySelector(s);
+function el(html){ const t=document.createElement("template"); t.innerHTML=html.trim(); return t.content.firstElementChild; }
+function paraHTML(i){
+  const p = SOURCE.paras[i];
+  if(i !== SOURCE.quotePara) return `<p>${p}</p>`;
+  // highlight the quote span within the paragraph
+  const q = SOURCE.quoteText;
+  return `<p>${p.replace(q, `<mark class="q" id="quote">${q}</mark>`)}</p>`;
+}
+function textFragmentURL(){
+  // open-in-new-tab deep link (browser text fragment) to the original, if it were external
+  const q = encodeURIComponent(SOURCE.quoteText);
+  return `#:~:text=${q}`;
+}
+function footerHTML(){
+  return `<div class="foot">${FOOTER}<a href="mailto:${REMOVE_EMAIL}">${REMOVE_EMAIL}</a>.<br>
+    Open the original: <a href="#" onclick="return false">${SOURCE.title} — PDF, p. 412 ↗</a></div>`;
+}
+
+// ---------------- the shared search surface (#40) ----------------
+function searchSurface(){
+  const cards = HITS.map((h,i)=>`
+    <article class="hit">
+      <p class="claim">${h.claim}</p>
+      <blockquote>“${h.quote}”</blockquote>
+      <div class="meta">
+        <span class="src">${h.source.author} · <i>${h.source.title}</i> · ${h.source.label}</span>
+        <span class="expand" data-rel="${i}">▾ related principles (${h.related.length})</span>
+        <a class="open" href="?variant=${VARIANT}&open=${h.principleId}#quote">Read in context →</a>
+      </div>
+      <div class="related" id="rel-${i}">
+        <h4>Live relatedness — computed, not authored</h4>
+        ${h.related.map(r=>`<div class="r">• ${r}</div>`).join("")}
+      </div>
+    </article>`).join("");
+  return `
+    <div class="topbar">
+      <div class="brand">principleDB <small>· the public Canon search</small></div>
+      <label class="searchbox">
+        <span>🔎</span>
+        <input value="why does love need someone to receive it?" />
+        <span class="k">↵</span>
+      </label>
+    </div>
+    <p class="lead">The teachings speak to this in a few places — here is what they say, in their own words. <b>Open any passage to read it in its full context.</b></p>
+    <div class="cards">${cards}</div>
+    ${footerHTML()}`;
+}
+function wireSearch(root){
+  root.querySelectorAll(".expand").forEach(x=>x.addEventListener("click",()=>{
+    $("#rel-"+x.dataset.rel, root).classList.toggle("open");
+  }));
+}
+
+// ---------------- Variant A: scroll + sticky rail ----------------
+function VariantA(){
+  const body = SOURCE.paras.map((_,i)=>paraHTML(i)).join("");
+  return `<div class="A">
+    ${searchSurface()}
+    <hr style="border:0;border-top:1px solid var(--line);margin:34px 0">
+    <div class="grid">
+      <div class="reader">
+        <a class="backlink" href="?variant=A">← back to results</a>
+        <h2 style="font-family:var(--serif);font-size:26px;margin:10px 0 4px">${SOURCE.title}</h2>
+        <div style="color:var(--ink-faint);margin-bottom:18px">${SOURCE.author}</div>
+        <div class="prose">${body}</div>
+        ${footerHTML()}
+      </div>
+      <aside class="rail">
+        <span class="label-pill">📖 ${SOURCE.label}</span>
+        <div style="font-size:13px;color:var(--ink-soft)">Highlighted quote is in view. Scroll freely — the whole source is here.</div>
+        <div class="navq">
+          <button class="btn" onclick="location.hash='#quote'">Jump to quote</button>
+        </div>
+        <div class="navq">
+          <button class="btn" disabled>◀ prev quote</button>
+          <button class="btn">next quote ▶</button>
+        </div>
+        <a class="btn" style="justify-content:center" href="${textFragmentURL()}" target="_blank">Open ↗ (deep link)</a>
+      </aside>
+    </div>
+  </div>`;
+}
+
+// ---------------- Variant B: outline + reading pane ----------------
+function VariantB(){
+  const toc = SOURCE.sections.map(s=>`<a class="${s.here?'here':''}" href="#sec-${s.at}">${s.label}</a>`).join("");
+  const body = SOURCE.paras.map((_,i)=>`<div class="sectionmark" id="sec-${i}">${paraHTML(i)}</div>`).join("");
+  return `<div class="B">
+    ${searchSurface()}
+    <hr style="border:0;border-top:1px solid var(--line);margin:34px 0">
+    <div style="display:flex;align-items:center;gap:14px;margin-bottom:14px">
+      <a class="backlink" href="?variant=B">← back to results</a>
+      <span class="label-pill">📖 ${SOURCE.label}</span>
+      <a class="btn" style="margin-left:auto" href="${textFragmentURL()}" target="_blank">Open ↗ deep link</a>
+    </div>
+    <div class="split">
+      <nav class="toc">
+        <h4>In this source</h4>
+        ${toc}
+      </nav>
+      <div class="pane">
+        <h2 style="font-family:var(--serif);font-size:24px;margin:0 0 2px">${SOURCE.title}</h2>
+        <div style="color:var(--ink-faint);margin-bottom:18px">${SOURCE.author}</div>
+        <div class="prose">${body}</div>
+        ${footerHTML()}
+      </div>
+    </div>
+  </div>`;
+}
+
+// ---------------- Variant C: focused card → expand to full ----------------
+function VariantC(){
+  const before = SOURCE.paras[SOURCE.quotePara].split(SOURCE.quoteText)[0];
+  const after = SOURCE.paras[SOURCE.quotePara].split(SOURCE.quoteText)[1] || "";
+  const full = SOURCE.paras.map((_,i)=>paraHTML(i)).join("");
+  const chips = HITS[0].related.map(r=>`<span class="chip">↗ ${r.slice(0,42)}…</span>`).join("");
+  return `<div class="C">
+    ${searchSurface()}
+    <hr style="border:0;border-top:1px solid var(--line);margin:34px 0">
+    <div class="focus">
+      <div style="display:flex;align-items:center;gap:12px;margin-bottom:14px">
+        <a class="backlink" href="?variant=C">← back</a>
+        <span class="label-pill">📖 ${SOURCE.label}</span>
+      </div>
+      <div class="qcard">
+        <div style="color:var(--ink-faint);font-size:13px;margin-bottom:6px">${SOURCE.author} · <i>${SOURCE.title}</i></div>
+        <span class="before">…${before.slice(-90)}</span>
+        <div class="theq"><mark class="q" id="quote">${SOURCE.quoteText}</mark></div>
+        <span class="after">${after.slice(0,90)}…</span>
+        <div class="chips">${chips}</div>
+        <button class="btn fulltoggle" id="cfull">Expand to full source ▾</button>
+        <div class="full" id="cfullbox">
+          <div class="prose">${full}</div>
+          <div style="margin-top:14px"><a class="btn" href="${textFragmentURL()}" target="_blank" style="justify-content:center">Open ↗ deep link to this quote</a></div>
+        </div>
+      </div>
+      ${footerHTML()}
+    </div>
+  </div>`;
+}
+
+// ---------------- Variant D: synthesis (sticky source outline + full scroll reader) ----------------
+function VariantD(){
+  const toc = SOURCE.sections.map((s,i)=>`<a data-spy="sec-${i}" href="#sec-${i}">${s.label}</a>`).join("");
+  const body = SOURCE.paras.map((_,i)=>`<div class="sectionmark" id="sec-${i}">${paraHTML(i)}</div>`).join("");
+  return `<div class="D">
+    ${searchSurface()}
+    <hr style="border:0;border-top:1px solid var(--line);margin:34px 0">
+    <div style="margin-bottom:16px"><a class="backlink" href="?variant=D">← back to results</a></div>
+    <div class="grid">
+      <aside class="rail">
+        <span class="label-pill">📖 ${SOURCE.label}</span>
+        <nav class="toc">
+          <h4>In this source</h4>
+          ${toc}
+        </nav>
+        <div class="quiet">
+          <a href="#quote">↑ the quote</a>
+          <a href="${textFragmentURL()}" target="_blank">share ↗</a>
+        </div>
+      </aside>
+      <div class="reader">
+        <h2 style="font-family:var(--serif);font-size:26px;margin:0 0 4px">${SOURCE.title}</h2>
+        <div style="color:var(--ink-faint);margin-bottom:20px">${SOURCE.author}</div>
+        <div class="prose">${body}</div>
+        ${footerHTML()}
+      </div>
+    </div>
+  </div>`;
+}
+function wireSpy(root){
+  const links = [...root.querySelectorAll('.D .toc a[data-spy]')];
+  if(!links.length) return;
+  const byId = Object.fromEntries(links.map(a=>[a.dataset.spy, a]));
+  const io = new IntersectionObserver((ents)=>{
+    ents.forEach(e=>{ if(e.isIntersecting){
+      links.forEach(a=>a.classList.remove('here'));
+      const a = byId[e.target.id]; if(a) a.classList.add('here');
+    }});
+  }, { rootMargin: "-15% 0px -70% 0px", threshold: 0 });
+  root.querySelectorAll('.D .sectionmark').forEach(s=>io.observe(s));
+}
+
+// ---------------- switcher / routing ----------------
+const VARIANTS = { D:["D — Sticky outline + full reader ★", VariantD],
+                   A:["A — Scroll + sticky rail", VariantA],
+                   B:["B — Split: outline + pane", VariantB],
+                   C:["C — Focused card → expand", VariantC] };
+let VARIANT = new URLSearchParams(location.search).get("variant") || "D";
+if(!VARIANTS[VARIANT]) VARIANT = "D";
+
+function render(){
+  const [ , fn] = VARIANTS[VARIANT];
+  const app = $("#app");
+  app.innerHTML = "";
+  app.appendChild(el(fn()));
+  wireSearch(app);
+  wireSpy(app);
+  // Variant C expand toggle
+  const t = $("#cfull"); if(t) t.addEventListener("click",()=>{
+    $("#cfullbox").classList.toggle("open");
+    t.textContent = $("#cfullbox").classList.contains("open") ? "Collapse ▴" : "Expand to full source ▾";
+  });
+  // scroll the highlighted quote into view if arriving via ?open=
+  if(new URLSearchParams(location.search).get("open")){
+    setTimeout(()=>{ const q=$("#quote"); if(q) q.scrollIntoView({behavior:"smooth",block:"center"}); }, 60);
+  }
+  renderSwitcher();
+}
+function setVariant(v){
+  VARIANT = v;
+  const u = new URL(location.href); u.searchParams.set("variant", v); u.searchParams.delete("open");
+  history.replaceState(null,"",u); render();
+}
+function cycle(dir){
+  const ks = Object.keys(VARIANTS); let i = ks.indexOf(VARIANT);
+  setVariant(ks[(i + dir + ks.length) % ks.length]);
+}
+function renderSwitcher(){
+  $("#switcher").innerHTML =
+    `<button aria-label="prev" onclick="cycle(-1)">‹</button>
+     <span class="lab"><b>Reader</b> · ${VARIANTS[VARIANT][0]}</span>
+     <button aria-label="next" onclick="cycle(1)">›</button>`;
+}
+window.cycle = cycle;
+document.addEventListener("keydown",e=>{
+  const t=e.target; if(t && /^(INPUT|TEXTAREA)$/.test(t.tagName) || (t && t.isContentEditable)) return;
+  if(e.key==="ArrowLeft") cycle(-1);
+  if(e.key==="ArrowRight") cycle(1);
+});
+render();
+</script>
+</body>
+</html>

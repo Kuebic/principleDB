@@ -8,6 +8,7 @@
   },
   "scripts": {
     "prototype": "tsx prototype/spine.ts",
+    "prototype:reader": "tsx prototype/serve-reader.ts",
     "ingest": "tsx prototype/ingest-spike.ts",
     "sandcastle": "npx tsx .sandcastle/main.ts",
     "mcp": "tsx bin/principledb-mcp.ts",
