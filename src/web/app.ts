@@ -36,9 +36,8 @@ export function createWebApp(deps: ServerDeps, options: WebAppOptions = {}): Hon
   // returns. LLM-free by construction (embedding + pgvector); related hits
   // are DEFERRED and fetched on click via /api/related.
   app.get('/', async (c) => {
-    const rawQuery = c.req.query('q');
-    const query = typeof rawQuery === 'string' ? rawQuery : undefined;
-    if (query === undefined || query.trim() === '') {
+    const query = c.req.query('q');
+    if (!query || query.trim() === '') {
       return c.html(renderSearchPage({}));
     }
     const response = await searchPrinciplesTool({ query }, deps);
