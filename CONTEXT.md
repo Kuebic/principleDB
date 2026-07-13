@@ -101,12 +101,24 @@ their own *model* and their own *client*.
   at the top of a service — a reading plus brief framing that aligns the congregation's
   hearts with the theme of the *upcoming worship songs*, so the singing lands (the
   Owner's term for a "mini-sermon").
+- **Public Canon search** — The unlisted-public web face over the Canon: a visitor types
+  a thought and gets connected Quotes with provenance, retrieved LLM-free (embedding +
+  pgvector) with live related traversal (#40, #41). Deliberately the *shallow* face (see
+  the "Not a quote-search engine" carve-out); distinct from the **Reader** (the
+  quote-in-context viewer, #43). Working descriptor — the brand/display name is deferred
+  to frontend design, not a code identifier. _Avoid_: search engine, RAG page.
 
 ## Non-goals
 
 - **Not a quote-search engine.** principleDB does not answer "give me quotes about X"
   with a flat list of matching excerpts. It returns *stacked, connected* Principles with
-  provenance. (This is the RAG ceiling it exists to break past.)
+  provenance. (This is the RAG ceiling it exists to break past.) **Carve-out (public
+  site):** the **public Canon search** is a deliberately *shallow* face of the Canon — a
+  thought returns connected Quotes via live relatedness (no LLM, no prose synthesis, no
+  stacking). Depth — stacking Principles into a coherent argument — stays in the Owner's
+  AI client (ADR-0005), which is what the "connect your AI" page exists to offer. The
+  non-goal still holds for the *system's* ambition; the public face is an intentional
+  slice, not the RAG ceiling being conceded (#40).
 - **Not an autonomous sermon writer.** The AI assembles grounded raw material and drafts
   *in dialogue*; the Owner shapes, owns, and "feels" the result. The AI never just spits
   out a finished sermon.
