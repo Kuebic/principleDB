@@ -44,6 +44,20 @@ function parseVector(raw: string): number[] {
   return JSON.parse(raw) as number[];
 }
 
+// Run a bulk insert in bounded slices so neither the pooler's bind-payload
+// tolerance nor the wire protocol's 65535-param cap is ever in play. Sequential
+// on purpose: callers hand in a transaction-bound insert, and interleaving
+// writes on one tx connection is not safe.
+async function insertInChunks<T>(
+  chunkSize: number,
+  rows: T[],
+  insert: (batch: T[]) => Promise<unknown>,
+): Promise<void> {
+  for (let i = 0; i < rows.length; i += chunkSize) {
+    await insert(rows.slice(i, i + chunkSize));
+  }
+}
+
 export class PostgresCanonRepository implements CanonRepository {
   private readonly db: NodePgDatabase<typeof schema>;
 
@@ -164,24 +178,33 @@ export class PostgresCanonRepository implements CanonRepository {
         ),
       );
 
-      // 4. Insert fresh principles + their quotes.
+      // 4. Insert fresh principles + their quotes. Chunked like
+      //    findSimilarPrinciplesForBatch: each principle row carries a
+      //    1536-float embedding (~30 KB as a bind param), so one flat insert
+      //    for a dense source (a quote-anthology PDF distils to thousands of
+      //    principles) builds a multi-MB bind payload the Supabase pooler
+      //    rejects — and >9362 rows would overflow the 65535-param protocol
+      //    cap outright. 128 rows/insert ≈ 4 MB worst case; all chunks share
+      //    the surrounding transaction so replace stays atomic.
       if (principles.length > 0) {
-        await tx.insert(schema.principle).values(
-          principles.map((p) => ({
-            id: p.id,
-            sourceId,
-            claim: p.claim,
-            embedding: p.embedding,
-            distilModel: p.distilModel,
-            distilModelVersion: p.distilModelVersion,
-            distilPromptVersion: p.distilPromptVersion,
-          })),
+        await insertInChunks(128, principles, (batch) =>
+          tx.insert(schema.principle).values(
+            batch.map((p) => ({
+              id: p.id,
+              sourceId,
+              claim: p.claim,
+              embedding: p.embedding,
+              distilModel: p.distilModel,
+              distilModelVersion: p.distilModelVersion,
+              distilPromptVersion: p.distilPromptVersion,
+            })),
+          ),
         );
 
         const quotes = principles.flatMap((p) => p.quotes);
-        if (quotes.length > 0) {
-          await tx.insert(schema.quote).values(
-            quotes.map((q) => ({
+        await insertInChunks(2000, quotes, (batch) =>
+          tx.insert(schema.quote).values(
+            batch.map((q) => ({
               id: q.id,
               principleId: q.principleId,
               sourceId: q.sourceId,
@@ -191,16 +214,16 @@ export class PostgresCanonRepository implements CanonRepository {
               matchTier: q.matchTier,
               distilPromptVersion: q.distilPromptVersion,
             })),
-          );
-        }
+          ),
+        );
       }
 
       // 5. Insert attached quotes (dedup merges) — host Principle lives
       //    under another source's slot, but the Quote text is from THIS
       //    Source.
-      if (attachedQuotes.length > 0) {
-        await tx.insert(schema.quote).values(
-          attachedQuotes.map((q) => ({
+      await insertInChunks(2000, attachedQuotes, (batch) =>
+        tx.insert(schema.quote).values(
+          batch.map((q) => ({
             id: q.id,
             principleId: q.principleId,
             sourceId: q.sourceId,
@@ -210,13 +233,13 @@ export class PostgresCanonRepository implements CanonRepository {
             matchTier: q.matchTier,
             distilPromptVersion: q.distilPromptVersion,
           })),
-        );
-      }
+        ),
+      );
 
       // 6. Insert dedup decisions.
-      if (decisions.length > 0) {
-        await tx.insert(schema.dedupDecision).values(
-          decisions.map((d) => ({
+      await insertInChunks(2000, decisions, (batch) =>
+        tx.insert(schema.dedupDecision).values(
+          batch.map((d) => ({
             id: d.id,
             sourceId: d.sourceId,
             candidateClaim: d.candidateClaim,
@@ -229,8 +252,8 @@ export class PostgresCanonRepository implements CanonRepository {
             distilPromptVersion: d.distilPromptVersion,
             confirmModel: d.confirmModel,
           })),
-        );
-      }
+        ),
+      );
     });
   }
 

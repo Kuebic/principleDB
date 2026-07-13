@@ -133,6 +133,36 @@ describe.skipIf(!DATABASE_URL)('PostgresCanonRepository (integration)', () => {
     expect(models).toEqual(['claude-opus-4-8', 'claude-sonnet-4-6']);
   });
 
+  it('replacePrinciplesForSource lands a dense source intact across insert chunks', async () => {
+    // A quote-anthology source can distil to thousands of principles; the
+    // insert runs in 128-row chunks (bind-payload bound). 300 rows crosses
+    // two chunk boundaries — every row and its quote must land exactly once.
+    const claims = Array.from({ length: 300 }, (_, i) => ({
+      claim: `Dense-source claim number ${i}.`,
+      quote: `Dense-source claim number ${i}.`,
+    }));
+    // Quotes must relocate in the source text or admission routes them to
+    // review candidates instead of the Canon.
+    const dense: Source = {
+      ...sermon,
+      id: 'dense1',
+      text: claims.map((c) => c.quote).join('\n'),
+    };
+    const provider = new FakeIngestProvider(() => claims, provenanceA, EMBEDDING_DIM);
+    await ingestSource(dense, { provider, repository: repo });
+
+    const principles = await pool.query(
+      `SELECT count(*)::int AS n FROM "${schema}"."principle" WHERE source_id = $1`,
+      [dense.id],
+    );
+    const quotes = await pool.query(
+      `SELECT count(*)::int AS n FROM "${schema}"."quote" WHERE source_id = $1`,
+      [dense.id],
+    );
+    expect(principles.rows[0].n).toBe(300);
+    expect(quotes.rows[0].n).toBe(300);
+  });
+
   it('searchByEmbedding hydrates each Principle with its Quotes (the relocated spans)', async () => {
     const provider = new FakeIngestProvider(
       () => [{ claim: 'Grace precedes obedience.', quote: 'Grace precedes obedience.' }],
