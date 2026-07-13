@@ -7,10 +7,15 @@
 //
 // Response shape is a discriminated union with a `found` boolean so the empty case
 // is predictable for AI clients without out-of-band signalling.
+//
+// Sibling `getQuoteReader` (issue #48) returns the WHOLE Source instead of a
+// bounded window — that's the shape the human Reader page needs (#39: no gating,
+// full source freely scrollable). Same span-honesty guarantee: the mark position
+// is `span`; the highlighted text is `source.text.slice(span.start, span.end)`.
 
 import { deriveLabel } from './derive-label';
 import type { CanonRepository } from './ports';
-import type { LocatedQuote, Span, SourceKind } from './types';
+import type { LocatedQuote, Span, SourceKind, StructureMap } from './types';
 
 const DEFAULT_CONTEXT_CHARS = 280;
 
@@ -83,6 +88,72 @@ export async function getQuoteInContext(
       text: source.text.slice(span.start, span.end),
       contextBefore: source.text.slice(beforeStart, span.start),
       contextAfter: source.text.slice(span.end, afterEnd),
+      matchTier: record.quote.matchTier,
+    },
+  };
+}
+
+// Reader shape (issue #48, Variant D): the FULL source text + structureMap so the
+// page can render a sticky outline (scroll-spy) alongside the whole scrollable
+// source. No window (#39). AI-client callers should stay on getQuoteInContext —
+// this shape is much larger and only makes sense for a human reader page.
+export interface QuoteReaderHit {
+  found: true;
+  source: {
+    id: string;
+    title: string;
+    author: string;
+    kind: SourceKind;
+    text: string;
+    structureMap: StructureMap;
+  };
+  principle: {
+    id: string;
+    claim: string;
+  };
+  quote: {
+    id: string;
+    span: Span;
+    label: string;
+    matchTier: LocatedQuote['matchTier'];
+  };
+}
+
+export interface QuoteReaderMiss {
+  found: false;
+}
+
+export type GetQuoteReaderResponse = QuoteReaderHit | QuoteReaderMiss;
+
+export async function getQuoteReader(
+  quoteId: string,
+  deps: { repository: CanonRepository },
+): Promise<GetQuoteReaderResponse> {
+  const record = await deps.repository.getQuoteById(quoteId);
+  if (!record) return { found: false };
+
+  const source = await deps.repository.getSource(record.quote.sourceId);
+  if (!source) return { found: false };
+
+  const { span } = record.quote;
+  return {
+    found: true,
+    source: {
+      id: source.id,
+      title: source.title,
+      author: source.author,
+      kind: source.kind,
+      text: source.text,
+      structureMap: source.structureMap,
+    },
+    principle: {
+      id: record.quote.principleId,
+      claim: record.principleClaim,
+    },
+    quote: {
+      id: record.quote.id,
+      span,
+      label: deriveLabel(source.structureMap, span, source.text.length),
       matchTier: record.quote.matchTier,
     },
   };

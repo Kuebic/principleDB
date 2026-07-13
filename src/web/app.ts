@@ -2,6 +2,8 @@
 // adapters over the shared `src/canon/` core:
 //   • GET /            — the public Canon search page (Slice W2, #40/#47);
 //     server-rendered HTML over `searchPrinciplesTool`. LLM-free.
+//   • GET /quote/:id   — the Reader (Slice W3, #48, Variant D). Full source,
+//     highlighted quote, sticky outline with scroll-spy.
 //   • GET /api/search  — core-direct search JSON (no MCP hop, no LLM per #40);
 //     returns the same SearchHitResponse shape the stdio MCP tool wraps.
 //   • GET /api/related — core-direct related JSON for the on-demand expander
@@ -14,9 +16,11 @@
 
 import { WebStandardStreamableHTTPServerTransport } from '@modelcontextprotocol/sdk/server/webStandardStreamableHttp.js';
 import { Hono } from 'hono';
+import { getQuoteReader } from '../canon/quote-in-context';
 import { createPrincipleDbServer, type ServerDeps } from '../mcp/server';
 import { relatedPrinciplesTool } from '../mcp/related-principles-tool';
 import { searchPrinciplesTool } from '../mcp/search-principles-tool';
+import { renderReaderNotFound, renderReaderPage } from './render-reader-page';
 import { renderSearchPage } from './render-search-page';
 
 export interface WebAppOptions {
@@ -42,6 +46,20 @@ export function createWebApp(deps: ServerDeps, options: WebAppOptions = {}): Hon
     }
     const response = await searchPrinciplesTool({ query }, deps);
     return c.html(renderSearchPage({ query, response }));
+  });
+
+  // GET /quote/:quoteId — the Reader page (Slice W3, #48, Variant D). The full
+  // Source, freely scrollable, with the target Quote highlighted (`<mark
+  // id="quote">`) and a sticky outline scroll-spy alongside. Not-found returns
+  // 404 with a shaped page so a stale link doesn't dump a generic Hono response.
+  app.get('/quote/:quoteId', async (c) => {
+    const quoteId = c.req.param('quoteId');
+    const back = safeReferer(c.req.header('Referer')) ?? '/';
+    const result = await getQuoteReader(quoteId, deps);
+    if (!result.found) {
+      return c.html(renderReaderNotFound({ back }), 404);
+    }
+    return c.html(renderReaderPage(result, { back }));
   });
 
   // GET /api/search — core-direct, no MCP hop. Reuses the existing tool
@@ -124,4 +142,17 @@ function parseLimit(raw: string | undefined): number | undefined | Error {
 function originAllowed(origin: string | undefined, allowed: string[]): boolean {
   if (!origin) return true;
   return allowed.includes(origin);
+}
+
+// Only trust a Referer whose path/query we can safely use as a same-origin back
+// link. External referers (or malformed URLs) fall through to the default '/'.
+function safeReferer(referer: string | undefined): string | undefined {
+  if (!referer) return undefined;
+  try {
+    const url = new URL(referer);
+    if (!url.pathname.startsWith('/')) return undefined;
+    return url.pathname + url.search;
+  } catch {
+    return undefined;
+  }
 }

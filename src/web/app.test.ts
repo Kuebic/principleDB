@@ -155,6 +155,35 @@ describe('GET /api/related — on-demand relatedness for the search page (#47)',
   });
 });
 
+describe('GET /quote/:quoteId — the Reader page (Slice W3, #48)', () => {
+  it('renders the highlighted quote plus the full source when the id resolves', async () => {
+    const deps = fixtureDeps();
+    await ingestSource(sermon, deps);
+    const app = createWebApp(deps);
+    const search = await app.request('/api/search?q=grace');
+    const body = (await search.json()) as SearchPrinciplesResponse;
+    const quoteId = body.hits[0]!.quote.id;
+
+    const res = await app.request(`/quote/${encodeURIComponent(quoteId)}`);
+    expect(res.status).toBe(200);
+    expect(res.headers.get('content-type') ?? '').toContain('text/html');
+    const html = await res.text();
+    expect(html).toContain('<mark id="quote">Grace precedes obedience.</mark>');
+    expect(html).toContain('Grace and obedience');
+    expect(html).toContain('Pastor X');
+    expect(html).toContain('<meta name="robots" content="noindex"');
+  });
+
+  it('returns 404 with a shaped page for an unknown Quote id', async () => {
+    const deps = fixtureDeps();
+    const app = createWebApp(deps);
+    const res = await app.request('/quote/nope');
+    expect(res.status).toBe(404);
+    const html = await res.text();
+    expect(html.toLowerCase()).toContain('not be found');
+  });
+});
+
 describe('GET/DELETE /mcp — 405 in stateless mode', () => {
   it('GET /mcp returns 405', async () => {
     const app = createWebApp({

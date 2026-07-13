@@ -2,7 +2,7 @@ import { describe, expect, it } from 'vitest';
 import { FakeIngestProvider } from './fake-provider';
 import { ingestSource } from './ingest';
 import { InMemoryRepository } from './in-memory-repository';
-import { getQuoteInContext } from './quote-in-context';
+import { getQuoteInContext, getQuoteReader } from './quote-in-context';
 import type { Source } from './types';
 
 const sermon: Source = {
@@ -124,6 +124,67 @@ describe('getQuoteInContext', () => {
   it('returns a well-shaped not-found result for an unknown Quote id', async () => {
     const repository = new InMemoryRepository();
     const result = await getQuoteInContext('does-not-exist', { repository });
+    expect(result).toEqual({ found: false });
+  });
+});
+
+describe('getQuoteReader (issue #48 — Reader shape, whole Source)', () => {
+  it("returns the whole source text and structureMap alongside the located span", async () => {
+    const { repository, quoteId } = await seed('Grace precedes obedience.');
+    const result = await getQuoteReader(quoteId, { repository });
+    expect(result.found).toBe(true);
+    if (!result.found) return;
+    expect(result.source.text).toBe(sermon.text);
+    expect(result.source.structureMap).toEqual({ kind: 'none' });
+    expect(result.quote.span.start).toBe(0);
+    expect(result.quote.span.end).toBe('Grace precedes obedience.'.length);
+    expect(result.quote.label).toMatch(/~\d+% in/);
+    expect(result.principle.claim).toBe('Grace precedes obedience.');
+  });
+
+  it('carries the source structureMap so the outline can be rendered', async () => {
+    const article: Source = {
+      id: 'art1',
+      title: 'Article',
+      author: 'A',
+      kind: 'article',
+      date: '2026-01-01',
+      text: 'Intro paragraph here.\n\nSection: Grace\n\nGrace is unearned. Love comes first.',
+      r2Key: null,
+      structureMap: {
+        kind: 'text-headings',
+        headings: [
+          { offset: 0, heading: 'Intro' },
+          { offset: 22, heading: 'Section: Grace' },
+        ],
+      },
+    };
+    const repository = new InMemoryRepository();
+    const provider = new FakeIngestProvider(() => [
+      { claim: 'Grace is unearned.', quote: 'Grace is unearned.' },
+    ]);
+    await ingestSource(article, { provider, repository });
+    const hits = await repository.searchByEmbedding(
+      (await provider.embed(['anything']))[0]!,
+      1,
+    );
+    const quoteId = hits[0]!.principle.quotes[0]!.id;
+    const result = await getQuoteReader(quoteId, { repository });
+    expect(result.found).toBe(true);
+    if (!result.found) return;
+    expect(result.source.structureMap).toEqual({
+      kind: 'text-headings',
+      headings: [
+        { offset: 0, heading: 'Intro' },
+        { offset: 22, heading: 'Section: Grace' },
+      ],
+    });
+    expect(result.quote.label).toBe('Section: Grace');
+  });
+
+  it('returns { found: false } for an unknown Quote id', async () => {
+    const repository = new InMemoryRepository();
+    const result = await getQuoteReader('does-not-exist', { repository });
     expect(result).toEqual({ found: false });
   });
 });
