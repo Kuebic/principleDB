@@ -23,11 +23,14 @@ const sermon: Source = {
   structureMap: { kind: 'none' },
 };
 
-async function wireClient(deps: {
-  provider: FakeIngestProvider;
-  repository: InMemoryRepository;
-}): Promise<Client> {
-  const server = createPrincipleDbServer(deps);
+async function wireClient(
+  deps: {
+    provider: FakeIngestProvider;
+    repository: InMemoryRepository;
+  },
+  options?: { readOnly?: boolean },
+): Promise<Client> {
+  const server = createPrincipleDbServer(deps, options);
   const [clientTransport, serverTransport] = InMemoryTransport.createLinkedPair();
   await server.connect(serverTransport);
   const client = new Client({ name: 'test-client', version: '0.0.0' });
@@ -256,6 +259,34 @@ describe('MCP server wiring (Review queue tools — slice 6)', () => {
       arguments: { itemId: 'nope' },
     });
     expect(result.isError).toBe(true);
+    await client.close();
+  });
+});
+
+describe('MCP server wiring (readOnly: true — public web surface, ADR-0015)', () => {
+  it('registers exactly the 3 read tools; write tools are absent', async () => {
+    const repository = new InMemoryRepository();
+    const provider = new FakeIngestProvider(() => []);
+    const client = await wireClient({ provider, repository }, { readOnly: true });
+    const { tools } = await client.listTools();
+    const names = tools.map((t) => t.name).sort();
+    expect(names).toEqual(
+      ['get_quote_in_context', 'related_principles', 'search_principles'].sort(),
+    );
+    await client.close();
+  });
+
+  it('calling a write tool from readOnly surface fails cleanly (tool not found)', async () => {
+    const repository = new InMemoryRepository();
+    const provider = new FakeIngestProvider(() => []);
+    const client = await wireClient({ provider, repository }, { readOnly: true });
+    const result = await client.callTool({
+      name: 'list_review_queue',
+      arguments: {},
+    });
+    expect(result.isError).toBe(true);
+    const [firstContent] = result.content as Array<{ type: string; text: string }>;
+    expect(firstContent!.text).toMatch(/list_review_queue/);
     await client.close();
   });
 });

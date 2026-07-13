@@ -11,6 +11,7 @@
     "ingest": "tsx prototype/ingest-spike.ts",
     "sandcastle": "npx tsx .sandcastle/main.ts",
     "mcp": "tsx bin/principledb-mcp.ts",
+    "serve": "tsx bin/principledb-serve.ts",
     "ingest:text": "tsx bin/principledb-ingest.ts",
     "ingest:html": "tsx bin/principledb-ingest-html.ts",
     "ingest:dir": "tsx bin/principledb-ingest-dir.ts",
@@ -31,9 +32,11 @@
   },
   "dependencies": {
     "@anthropic-ai/sdk": "^0.105.0",
+    "@hono/node-server": "^1.19.14",
     "@modelcontextprotocol/sdk": "^1.29.0",
     "aws4fetch": "^1.0.20",
     "drizzle-orm": "^0.45.2",
+    "hono": "^4.12.30",
     "node-html-parser": "^8.0.4",
     "pg": "^8.22.0",
     "zod": "^4.4.3"

@@ -1,0 +1,87 @@
+// Hono app for the public web surface (ADR-0015, ADR-0016). One Node process,
+// two adapters over the shared `src/canon/` core:
+//   • GET /api/search — core-direct search (no MCP hop, no LLM per #40); returns
+//     the same SearchHitResponse shape the stdio MCP tool wraps.
+//   • POST /mcp — stateless Streamable HTTP transport; a fresh server + fresh
+//     transport instantiated per request (readOnly: true so the two write tools
+//     are absent). GET/DELETE /mcp return 405.
+// The site data path never hops through an MCP client — dogfooding lives in the
+// smoke test (mcp-smoke.test.ts), not on this path (ADR-0015).
+
+import { WebStandardStreamableHTTPServerTransport } from '@modelcontextprotocol/sdk/server/webStandardStreamableHttp.js';
+import { Hono } from 'hono';
+import { createPrincipleDbServer, type ServerDeps } from '../mcp/server';
+import { searchPrinciplesTool } from '../mcp/search-principles-tool';
+
+export interface WebAppOptions {
+  // Origin values allowed on cross-origin requests (DNS-rebinding protection).
+  // When undefined, no Origin check is applied — the tracer-bullet default, safe
+  // because the public deploy sits behind Cloudflare which handles origin
+  // policing at the edge. Set on local dev to lock the endpoint to same-origin.
+  allowedOrigins?: string[];
+}
+
+export function createWebApp(deps: ServerDeps, options: WebAppOptions = {}): Hono {
+  const app = new Hono();
+  const { allowedOrigins } = options;
+
+  // GET /api/search — core-direct, no MCP hop. Reuses the existing tool
+  // handler so the site and the MCP endpoint return byte-identical hit shapes.
+  app.get('/api/search', async (c) => {
+    const query = c.req.query('q');
+    if (!query || query.trim() === '') {
+      return c.json({ error: 'missing required query parameter `q`' }, 400);
+    }
+    const limitRaw = c.req.query('limit');
+    const limit = parseLimit(limitRaw);
+    if (limit instanceof Error) {
+      return c.json({ error: limit.message }, 400);
+    }
+    const response = await searchPrinciplesTool(
+      { query, ...(limit !== undefined ? { limit } : {}) },
+      deps,
+    );
+    return c.json(response);
+  });
+
+  // POST /mcp — stateless Streamable HTTP. Per ADR-0015 the read-only tool
+  // surface is exactly the 3 read tools; write tools stay off the anonymous
+  // surface. A fresh server + fresh transport per request (sessionIdGenerator:
+  // undefined) keeps the endpoint safe under concurrent anonymous callers.
+  app.post('/mcp', async (c) => {
+    if (allowedOrigins && !originAllowed(c.req.header('Origin'), allowedOrigins)) {
+      return c.json({ error: 'Origin not allowed' }, 403);
+    }
+    const server = createPrincipleDbServer(deps, { readOnly: true });
+    const transport = new WebStandardStreamableHTTPServerTransport({
+      sessionIdGenerator: undefined,
+    });
+    await server.connect(transport);
+    // Per SDK v1.29 stateless mode the transport owns the response lifecycle:
+    // returning its Response streams the reply to the client and the transport
+    // + server are released when the stream ends. Closing the server here
+    // would tear the reply down mid-flight.
+    return transport.handleRequest(c.req.raw);
+  });
+
+  // Streamable HTTP stateless mode: GET (SSE stream) and DELETE (session
+  // termination) have no meaning without a session, so surface them as 405
+  // rather than defaulting to Hono's 404.
+  app.on(['GET', 'DELETE'], '/mcp', (c) => c.text('Method Not Allowed', 405));
+
+  return app;
+}
+
+function parseLimit(raw: string | undefined): number | undefined | Error {
+  if (raw === undefined || raw === '') return undefined;
+  const n = Number(raw);
+  if (!Number.isInteger(n) || n < 1 || n > 50) {
+    return new Error('`limit` must be an integer between 1 and 50');
+  }
+  return n;
+}
+
+function originAllowed(origin: string | undefined, allowed: string[]): boolean {
+  if (!origin) return true;
+  return allowed.includes(origin);
+}
