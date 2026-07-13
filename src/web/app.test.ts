@@ -204,6 +204,83 @@ describe('GET/DELETE /mcp — 405 in stateless mode', () => {
   });
 });
 
+describe('Rate limiting — /api/search + /mcp return 429 on exceed (Slice W4, #49)', () => {
+  it('exceeding capacity on /api/search returns HTTP 429', async () => {
+    const deps = fixtureDeps();
+    const app = createWebApp(deps, {
+      rateLimit: {
+        capacity: 2,
+        refillPerMs: 0,
+        now: () => 0,
+        extractKey: () => 'test-ip',
+      },
+    });
+    expect((await app.request('/api/search?q=x')).status).toBe(200);
+    expect((await app.request('/api/search?q=x')).status).toBe(200);
+    const denied = await app.request('/api/search?q=x');
+    expect(denied.status).toBe(429);
+  });
+
+  it('exceeding capacity on POST /mcp returns HTTP 429', async () => {
+    const deps = fixtureDeps();
+    const app = createWebApp(deps, {
+      rateLimit: {
+        capacity: 1,
+        refillPerMs: 0,
+        now: () => 0,
+        extractKey: () => 'test-ip',
+      },
+    });
+    const first = await app.request('/mcp', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json', Accept: 'application/json, text/event-stream' },
+      body: JSON.stringify({
+        jsonrpc: '2.0',
+        id: 1,
+        method: 'initialize',
+        params: {
+          protocolVersion: '2025-06-18',
+          clientInfo: { name: 't', version: '0' },
+          capabilities: {},
+        },
+      }),
+    });
+    expect(first.status).not.toBe(429);
+    const second = await app.request('/mcp', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json', Accept: 'application/json, text/event-stream' },
+      body: JSON.stringify({ jsonrpc: '2.0', id: 2, method: 'ping' }),
+    });
+    expect(second.status).toBe(429);
+  });
+});
+
+describe('Request logging — IP + UA per request (Slice W4, #49)', () => {
+  it('emits one log entry per request with IP and user-agent', async () => {
+    const deps = fixtureDeps();
+    const entries: Array<{ ip: string; userAgent: string; path: string; status: number }> = [];
+    const app = createWebApp(deps, {
+      requestLog: {
+        log: (entry) => entries.push(entry),
+      },
+    });
+
+    await app.request('/api/search?q=grace', {
+      headers: {
+        'cf-connecting-ip': '10.0.0.1',
+        'user-agent': 'w4-test/0.1',
+      },
+    });
+
+    expect(entries).toHaveLength(1);
+    const [entry] = entries;
+    expect(entry!.path).toBe('/api/search');
+    expect(entry!.status).toBe(200);
+    expect(entry!.ip).toBe('10.0.0.1');
+    expect(entry!.userAgent).toBe('w4-test/0.1');
+  });
+});
+
 describe('POST /mcp — Origin validation (opt-in)', () => {
   it('rejects a disallowed Origin with 403 when allowedOrigins is set', async () => {
     const app = createWebApp(

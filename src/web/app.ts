@@ -13,6 +13,13 @@
 //     write tools are absent). GET/DELETE /mcp return 405.
 // The site data path never hops through an MCP client — dogfooding lives in the
 // smoke test (mcp-smoke.test.ts), not on this path (ADR-0015).
+//
+// Abuse / cost controls (Slice W4, #49) plug in as middleware here rather than
+// in the individual handlers so they're one-place-to-look:
+//   • createRateLimiter    — per-IP token-bucket 429s (opt-in via options)
+//   • createRequestLogger  — per-request IP + UA log line (opt-in via options)
+// The query-embedding cache lives in the caller-supplied provider (wrap with
+// withQueryEmbeddingCache in the serve bin) so tests can opt in per-fixture.
 
 import { WebStandardStreamableHTTPServerTransport } from '@modelcontextprotocol/sdk/server/webStandardStreamableHttp.js';
 import { Hono } from 'hono';
@@ -20,6 +27,11 @@ import { getQuoteReader } from '../canon/quote-in-context';
 import { createPrincipleDbServer, type ServerDeps } from '../mcp/server';
 import { relatedPrinciplesTool } from '../mcp/related-principles-tool';
 import { searchPrinciplesTool } from '../mcp/search-principles-tool';
+import { createRateLimiter, type RateLimitOptions } from './rate-limit';
+import {
+  createRequestLogger,
+  type RequestLoggerOptions,
+} from './request-logger';
 import { renderReaderNotFound, renderReaderPage } from './render-reader-page';
 import { renderSearchPage } from './render-search-page';
 
@@ -29,11 +41,27 @@ export interface WebAppOptions {
   // because the public deploy sits behind Cloudflare which handles origin
   // policing at the edge. Set on local dev to lock the endpoint to same-origin.
   allowedOrigins?: string[];
+  // In-app per-IP rate limit (Slice W4, #49). Defense-in-depth behind the
+  // Cloudflare edge rules (W6 deploy config). When omitted, no in-app limit
+  // is applied — the tracer-bullet default so tests and dev don't 429 on
+  // themselves. The serve bin turns it on with production-shaped defaults.
+  rateLimit?: RateLimitOptions;
+  // Per-request access log (Slice W4, #49). When omitted, no log is emitted.
+  // Serve bin turns it on unconditionally; tests opt-in when asserting on
+  // log output.
+  requestLog?: RequestLoggerOptions;
 }
 
 export function createWebApp(deps: ServerDeps, options: WebAppOptions = {}): Hono {
   const app = new Hono();
   const { allowedOrigins } = options;
+
+  // Middleware — order matters:
+  //   1. request log runs first so every response (200/400/429/…) is logged
+  //   2. rate limit runs before the handlers, so a 429 skips the (expensive)
+  //      embed + vector-search work.
+  if (options.requestLog) app.use('*', createRequestLogger(options.requestLog));
+  if (options.rateLimit) app.use('*', createRateLimiter(options.rateLimit));
 
   // GET / — the public Canon search page (Slice W2, #40/#47). Server-rendered
   // over `searchPrinciplesTool` so results share the exact shape /api/search

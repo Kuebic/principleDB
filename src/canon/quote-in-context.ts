@@ -18,6 +18,15 @@ import type { CanonRepository } from './ports';
 import type { LocatedQuote, Span, SourceKind, StructureMap } from './types';
 
 const DEFAULT_CONTEXT_CHARS = 280;
+// Hard cap on the surrounding-context window, in characters on each side of
+// the Quote (issue #49). Bounds the amount of Source text a single
+// get_quote_in_context call can materialize, so a hostile client can't
+// request a multi-MB slice on every hit. Matches the MCP tool schema's
+// contextChars.max in `mcp/server.ts`; the clamp here is defense-in-depth
+// for the core function itself (called from the Reader page's sibling
+// getQuoteReader shares the same repository but returns whole Source text —
+// that path has no window, on purpose per #39).
+export const MAX_CONTEXT_CHARS = 4000;
 
 export interface GetQuoteInContextDeps {
   repository: CanonRepository;
@@ -57,7 +66,8 @@ export async function getQuoteInContext(
   quoteId: string,
   deps: GetQuoteInContextDeps,
 ): Promise<GetQuoteInContextResponse> {
-  const window = deps.contextChars ?? DEFAULT_CONTEXT_CHARS;
+  const requested = deps.contextChars ?? DEFAULT_CONTEXT_CHARS;
+  const window = Math.max(0, Math.min(requested, MAX_CONTEXT_CHARS));
 
   const record = await deps.repository.getQuoteById(quoteId);
   if (!record) return { found: false };

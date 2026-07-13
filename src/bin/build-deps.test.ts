@@ -137,4 +137,45 @@ describe('buildPrincipleDbDepsFromEnv', () => {
       buildPrincipleDbDepsFromEnv({ ...fullEnv, PRINCIPLEDB_PG_POOL_MAX: '0' }),
     ).toThrow(/PRINCIPLEDB_PG_POOL_MAX must be a positive integer/);
   });
+
+  it('registers a SET statement_timeout on each new pool connection when PRINCIPLEDB_STATEMENT_TIMEOUT_MS is set (#49)', async () => {
+    const out = buildPrincipleDbDepsFromEnv({
+      ...fullEnv,
+      PRINCIPLEDB_STATEMENT_TIMEOUT_MS: '5000',
+    });
+    built.push(out);
+
+    const listeners = out.pool.listeners('connect');
+    expect(listeners.length).toBeGreaterThan(0);
+
+    // Invoke the handler with a stub client and assert it runs the SET query
+    // with the parsed timeout — the real pg connection is not available here,
+    // so the wiring test proves the query would be shipped on every acquire.
+    const queries: string[] = [];
+    const stubClient = {
+      query: (sql: string) => {
+        queries.push(sql);
+        return Promise.resolve({ rows: [] });
+      },
+    };
+    for (const listener of listeners) {
+      await (listener as (client: unknown) => Promise<void> | void)(stubClient);
+    }
+    expect(queries.some((q) => /statement_timeout\s*=\s*5000/i.test(q))).toBe(true);
+  });
+
+  it('does not register a statement_timeout handler when PRINCIPLEDB_STATEMENT_TIMEOUT_MS is unset', () => {
+    const out = buildPrincipleDbDepsFromEnv(fullEnv);
+    built.push(out);
+    expect(out.pool.listeners('connect').length).toBe(0);
+  });
+
+  it('throws a clear error on a non-positive PRINCIPLEDB_STATEMENT_TIMEOUT_MS (#49)', () => {
+    expect(() =>
+      buildPrincipleDbDepsFromEnv({ ...fullEnv, PRINCIPLEDB_STATEMENT_TIMEOUT_MS: 'abc' }),
+    ).toThrow(/PRINCIPLEDB_STATEMENT_TIMEOUT_MS must be a positive integer/);
+    expect(() =>
+      buildPrincipleDbDepsFromEnv({ ...fullEnv, PRINCIPLEDB_STATEMENT_TIMEOUT_MS: '0' }),
+    ).toThrow(/PRINCIPLEDB_STATEMENT_TIMEOUT_MS must be a positive integer/);
+  });
 });

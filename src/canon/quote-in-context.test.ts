@@ -126,6 +126,22 @@ describe('getQuoteInContext', () => {
     const result = await getQuoteInContext('does-not-exist', { repository });
     expect(result).toEqual({ found: false });
   });
+
+  it('clamps a huge contextChars request to MAX_CONTEXT_CHARS (#49 abuse cap)', async () => {
+    const { repository, quoteId } = await seed('Grace precedes obedience.');
+    const result = await getQuoteInContext(quoteId, {
+      repository,
+      contextChars: 1_000_000,
+    });
+    expect(result.found).toBe(true);
+    if (!result.found) return;
+    // Cap is 4000 chars each side. The fixture Source is far shorter, so the
+    // effective window collapses to the whole source — the invariant is that
+    // the *request* was silently clamped and did not, for instance, materialise
+    // a million-character slice.
+    expect(result.quote.contextBefore.length).toBeLessThanOrEqual(4000);
+    expect(result.quote.contextAfter.length).toBeLessThanOrEqual(4000);
+  });
 });
 
 describe('getQuoteReader (issue #48 — Reader shape, whole Source)', () => {

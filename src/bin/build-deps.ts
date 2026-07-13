@@ -37,6 +37,14 @@ export interface BuildDepsEnv {
   // Unset = pg.Pool default — the right choice for interactive MCP use
   // where a bigger pool is wasted headroom.
   PRINCIPLEDB_PG_POOL_MAX?: string;
+  // Per-session `statement_timeout`, in milliseconds, applied via a
+  // `SET statement_timeout` on every acquired client (issue #49). Bounds
+  // pathological / adversarial queries on the anonymous serving surface so
+  // an unindexed scan or a runaway pgvector call can't hold a pool
+  // connection open indefinitely. Unset = no timeout — the right choice
+  // for ingest (long transactions) and stdio MCP (interactive). The serve
+  // bin sets a default (5000) for the public web + remote MCP process.
+  PRINCIPLEDB_STATEMENT_TIMEOUT_MS?: string;
 }
 
 export interface BuiltDeps {
@@ -66,11 +74,20 @@ export function buildPrincipleDbDepsFromEnv(env: BuildDepsEnv = process.env): Bu
   // instead of leaking a connection pool behind the throw.
   const maxRetries = parseMaxRetries(env.PRINCIPLEDB_MAX_RETRIES);
   const poolMax = parsePgPoolMax(env.PRINCIPLEDB_PG_POOL_MAX);
+  const statementTimeoutMs = parseStatementTimeoutMs(env.PRINCIPLEDB_STATEMENT_TIMEOUT_MS);
 
   const pool = new pg.Pool({
     connectionString: env.DATABASE_URL,
     ...(poolMax !== undefined ? { max: poolMax } : {}),
   });
+  if (statementTimeoutMs !== undefined) {
+    // Applied per-acquire so every serving query lands under the same bound —
+    // the pooler recycles clients across requests, and PgBouncer session
+    // pooling means we can't rely on server-level defaults propagating.
+    pool.on('connect', (client) => {
+      void client.query(`SET statement_timeout = ${statementTimeoutMs}`);
+    });
+  }
   const repository = new PostgresCanonRepository(pool);
   const embed = createOpenAIEmbedder({
     apiKey: env.OPENAI_API_KEY,
@@ -124,6 +141,21 @@ function parsePgPoolMax(raw: string | undefined): number | undefined {
   if (!Number.isInteger(n) || n <= 0) {
     throw new Error(
       `PRINCIPLEDB_PG_POOL_MAX must be a positive integer, got "${raw}".`,
+    );
+  }
+  return n;
+}
+
+// Parse PRINCIPLEDB_STATEMENT_TIMEOUT_MS into a per-session timeout, in ms.
+// Unset ⇒ undefined ⇒ no `SET statement_timeout` handler. Must be positive
+// (Postgres treats 0 as "no limit", which defeats the purpose here — force an
+// explicit unset instead if the caller wants that).
+function parseStatementTimeoutMs(raw: string | undefined): number | undefined {
+  if (raw === undefined || raw === '') return undefined;
+  const n = Number(raw);
+  if (!Number.isInteger(n) || n <= 0) {
+    throw new Error(
+      `PRINCIPLEDB_STATEMENT_TIMEOUT_MS must be a positive integer, got "${raw}".`,
     );
   }
   return n;
