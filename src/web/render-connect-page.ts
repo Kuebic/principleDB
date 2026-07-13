@@ -18,7 +18,6 @@ export interface RenderConnectPageOptions {
 
 export function renderConnectPage(options: RenderConnectPageOptions): string {
   const mcpUrl = escapeHtml(options.mcpUrl);
-  const mcpUrlAttr = escapeAttribute(options.mcpUrl);
   const cursorSnippet = JSON.stringify(
     { mcpServers: { principledb: { url: options.mcpUrl } } },
     null,
@@ -72,7 +71,7 @@ export function renderConnectPage(options: RenderConnectPageOptions): string {
     <article class="client">
       <h2>Claude Code</h2>
       <p>Add it once from the terminal:</p>
-      <pre><code>claude mcp add --transport http --scope user principledb ${mcpUrlAttr}</code></pre>
+      <pre><code>claude mcp add --transport http --scope user principledb ${mcpUrl}</code></pre>
       <p class="note"><code>--scope user</code> makes it available in every project.
         Drop the flag to add it to the current project only. Inside Claude Code,
         <code>/mcp</code> lists connected servers.</p>
@@ -118,10 +117,6 @@ function escapeHtml(input: string): string {
     .replace(/>/g, '&gt;')
     .replace(/"/g, '&quot;')
     .replace(/'/g, '&#39;');
-}
-
-function escapeAttribute(input: string): string {
-  return escapeHtml(input);
 }
 
 const STYLES = `
