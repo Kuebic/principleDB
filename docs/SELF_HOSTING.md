@@ -202,29 +202,150 @@ Once connected, the client advertises a set of Canon tools:
 To smoke-test the wiring without a client: ask Claude Desktop "what tools do
 you have available?" and confirm the above appear.
 
-## 8. (Planned) Run the public web + remote MCP surface
-
-> **Status: planned, not yet shipped** (ADR-0016, map #37). The stdio MCP server
-> above is the baseline every Owner runs today. The public surface below is an
-> *optional* additional adapter over the same core — documented here so you know
-> what's coming; the steps land when the web slices are built.
+## 8. Run the public web + remote MCP surface
 
 Everything above binds the Canon to **stdio** for your own AI client. The optional
 public surface adds a second entry point on the *same* one-process Node server
-(ADR-0015): a website where anyone with the link can type a thought and get
-connected Quotes (LLM-free — one embedding + pgvector, #40), plus a public remote
-MCP endpoint at `POST /mcp` (read-only tools) that others can connect their own AI
-to. It is opt-in: run it only if you want a public face.
+(ADR-0015, ADR-0016): a website where anyone with the link can type a thought
+and get connected Quotes (LLM-free — one embedding + pgvector, #40), plus a
+public remote MCP endpoint at `POST /mcp` (read-only tools) that others can
+connect their own AI to. It is opt-in: run it only if you want a public face;
+`npm run mcp` (stdio) keeps working unchanged.
 
-- **Same runtime, same env.** Plain Node (ADR-0016) — no Cloudflare account or
-  rewrite required. The planned `npm run serve` boots the Hono server that mounts
-  both the site routes and `/mcp`; `npm run mcp` (stdio) keeps working unchanged.
-- **Hosting.** Any always-on box: Fly.io (recommended, ~$3-4/mo, managed TLS),
-  a VPS (Hetzner), or your own box behind a Cloudflare Tunnel ($0, uptime tied to
-  the box). Put Cloudflare in front for per-IP rate limiting.
-- **Exposure.** The public MCP endpoint exposes only the read tools; the write
-  tools (`list_review_queue`, `resolve_review_item`) stay off the anonymous
-  surface. See the map (#37) for the exposure/copyright stance.
+### 8a. Local smoke test
+
+Same env as §4 (`DATABASE_URL`, `ANTHROPIC_API_KEY`, `OPENAI_API_KEY`):
+
+```bash
+npm install
+npm run serve                      # Hono on plain Node, PORT=3000
+```
+
+Then in another shell:
+
+```bash
+curl 'http://localhost:3000/api/search?q=grace'   # core-direct JSON
+curl -X POST http://localhost:3000/mcp \          # read-only Streamable HTTP
+  -H 'content-type: application/json' \
+  -d '{"jsonrpc":"2.0","id":1,"method":"tools/list"}'
+open http://localhost:3000                        # the search page
+open http://localhost:3000/connect                # the connect-your-AI page
+```
+
+The `/mcp` tool list is the three read tools (`search_principles`,
+`get_quote_in_context`, `related_principles`); `list_review_queue` and
+`resolve_review_item` are absent from the anonymous surface by design.
+
+Useful serve env knobs (all optional, safe defaults per W4 #49):
+
+- `PORT`, `HOSTNAME` — bind. Default `3000` / `0.0.0.0`.
+- `PRINCIPLEDB_RATE_LIMIT_CAPACITY` / `PRINCIPLEDB_RATE_LIMIT_WINDOW_MS` —
+  in-app per-IP token-bucket 429 (defaults 60 req/60s).
+- `PRINCIPLEDB_EMBEDDING_CACHE_TTL_MS` / `PRINCIPLEDB_EMBEDDING_CACHE_MAX` —
+  short-TTL query-embedding cache (defaults 60000ms / 500 entries).
+- `PRINCIPLEDB_STATEMENT_TIMEOUT_MS` — per-session Postgres statement
+  timeout (default 5000). Requires a **session-mode** Postgres URL —
+  Supabase's transaction pooler on `:6543` does not propagate session
+  `SET`s; use the session pooler URL (or `:5432` direct) for serve.
+
+### 8b. Deploy on Fly.io (recommended)
+
+The repo ships a `Dockerfile` and `fly.toml` at the root. Fly gives you
+always-on shared-cpu-1x, managed TLS/anycast, and a `<app>.fly.dev`
+hostname for ~$3-4/mo. The Docker image is portable — the same artifact
+runs on Hetzner or an own-box behind a Cloudflare Tunnel per ADR-0016;
+these steps are the recommended path, not the only one.
+
+1. **Install flyctl** (once): <https://fly.io/docs/hands-on/install-flyctl/>,
+   then `flyctl auth login`.
+2. **Create the app.** Edit `app = "principledb"` in `fly.toml` to the name
+   you want, then:
+   ```bash
+   flyctl apps create <your-app-name>
+   ```
+   (Or `flyctl launch --no-deploy` if you want the CLI to walk you
+   through region + org selection — accept the existing `fly.toml`
+   when prompted.)
+3. **Set secrets.** The same three keys the stdio server needs — set
+   them as Fly secrets so they're injected into the machine's env at
+   boot:
+   ```bash
+   flyctl secrets set \
+     DATABASE_URL='postgres://…?sslmode=require' \
+     ANTHROPIC_API_KEY='sk-ant-…' \
+     OPENAI_API_KEY='sk-…'
+   ```
+   Add the `R2_*` block from §2 if you're also running ingest from this
+   machine; the serve surface itself doesn't touch R2.
+4. **Deploy.**
+   ```bash
+   flyctl deploy
+   ```
+   Fly builds the `Dockerfile`, boots one machine, and prints the
+   `https://<your-app-name>.fly.dev` URL. Managed TLS is on by
+   default (`force_https = true` in `fly.toml`).
+5. **Verify.**
+   ```bash
+   curl https://<your-app-name>.fly.dev/api/search?q=grace
+   flyctl logs                 # tails the container stdout
+   flyctl ssh console          # optional: exec into the machine
+   ```
+
+To roll back: `flyctl releases list` → `flyctl deploy --image <prior-digest>`
+(or just re-deploy from an earlier commit).
+
+### 8c. Cloudflare in front (edge rate-limiting)
+
+The app has an in-app token-bucket (W4, #49) as a backstop, but the
+recommended production shape is **Cloudflare in front** so scrapers are
+turned away at the edge before they cost you a request round-trip.
+
+1. **Point DNS at Fly.** In Cloudflare → DNS, add a `CNAME` for the
+   hostname you want (e.g. `search.example.com` → `<your-app-name>.fly.dev`),
+   proxied ("orange cloud" on).
+2. **Add the custom hostname to Fly.**
+   ```bash
+   flyctl certs create search.example.com
+   ```
+   Fly provisions a managed cert for the Cloudflare-proxied hostname.
+3. **Add a per-IP rate rule.** Cloudflare → Security → WAF → **Rate
+   limiting rules** → *Create rule*. Recommended starting shape
+   (per #42, adjust up if legit traffic 429s):
+   - **When incoming requests match:** `URI Path` `contains` `/`
+     (i.e. the whole site — narrow to `/api/search` or `/mcp` if you
+     want to leave HTML browsing unlimited).
+   - **Characteristics:** IP address.
+   - **Rate:** **20 requests per 10 seconds** (burst control).
+   - **Action:** Block for 10 seconds.
+   - Add a second rule for the hour-scale ceiling: **600 requests per
+     1 hour** per IP → Block for 1 hour.
+4. **Optional WAF hardening.** Turn on Cloudflare's Managed Rules
+   (free tier is fine) and Bot Fight Mode; both drop obvious junk
+   before the origin sees it.
+
+The in-app limiter stays on as defense-in-depth: if Cloudflare is ever
+bypassed (direct-to-`fly.dev` hit) the origin still 429s.
+
+### 8d. Alternative hosts (reversible per ADR-0016)
+
+- **Hetzner (or any VPS).** `docker build -t principledb .` on your box,
+  then `docker run -d --env-file .env -p 3000:3000 --restart=always
+  principledb`. Front it with Caddy or Nginx for TLS + Cloudflare for the
+  rate rules; same Dockerfile as Fly.
+- **Own box + Cloudflare Tunnel.** `$0` uptime tied to the box. Install
+  `cloudflared`, run `docker compose up -d` locally, add a `cloudflared`
+  tunnel pointing at `http://localhost:3000`. The Cloudflare edge rate
+  rules above still apply — the tunnel egresses through Cloudflare's
+  network.
+- **Cloudflare Workers.** Documented future exit (ADR-0016). Hono runs
+  on Workers unchanged, so the port is Hyperdrive wiring + a fetch-handler
+  entrypoint — not a rewrite.
+
+### 8e. Exposure & non-goals
+
+The public MCP endpoint exposes only the read tools; the write tools
+(`list_review_queue`, `resolve_review_item`) stay off the anonymous
+surface. See the map (#37) for the exposure/copyright stance.
 
 ## Portability
 
