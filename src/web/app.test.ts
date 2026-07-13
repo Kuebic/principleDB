@@ -184,6 +184,45 @@ describe('GET /quote/:quoteId — the Reader page (Slice W3, #48)', () => {
   });
 });
 
+describe('GET /connect — "connect your AI" page (Slice W5, #50)', () => {
+  it('renders a noindex page with the request-derived /mcp URL', async () => {
+    const deps = fixtureDeps();
+    const app = createWebApp(deps);
+    const res = await app.request('http://principledb.example.com/connect');
+    expect(res.status).toBe(200);
+    expect(res.headers.get('content-type') ?? '').toContain('text/html');
+    const body = await res.text();
+    expect(body).toContain('<meta name="robots" content="noindex"');
+    expect(body).toContain('http://principledb.example.com/mcp');
+  });
+
+  it('honours X-Forwarded-Proto/Host so the printed URL is the public one', async () => {
+    const deps = fixtureDeps();
+    const app = createWebApp(deps);
+    const res = await app.request('http://internal.local/connect', {
+      headers: {
+        'X-Forwarded-Proto': 'https',
+        'X-Forwarded-Host': 'principledb.example.com',
+      },
+    });
+    expect(res.status).toBe(200);
+    const body = await res.text();
+    expect(body).toContain('https://principledb.example.com/mcp');
+    expect(body).not.toContain('http://internal.local/mcp');
+  });
+
+  it('names each supported client on the page', async () => {
+    const deps = fixtureDeps();
+    const app = createWebApp(deps);
+    const res = await app.request('http://principledb.example.com/connect');
+    const body = await res.text();
+    expect(body).toMatch(/claude\.ai/i);
+    expect(body).toMatch(/claude code/i);
+    expect(body).toMatch(/chatgpt/i);
+    expect(body).toMatch(/cursor/i);
+  });
+});
+
 describe('GET/DELETE /mcp — 405 in stateless mode', () => {
   it('GET /mcp returns 405', async () => {
     const app = createWebApp({

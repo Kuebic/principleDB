@@ -4,6 +4,9 @@
 //     server-rendered HTML over `searchPrinciplesTool`. LLM-free.
 //   • GET /quote/:id   — the Reader (Slice W3, #48, Variant D). Full source,
 //     highlighted quote, sticky outline with scroll-spy.
+//   • GET /connect     — the "connect your AI" page (Slice W5, #50). Static
+//     copy-paste steps against the deployed /mcp URL; the deep-face
+//     counterpart to the shallow public search (CONTEXT.md carve-out).
 //   • GET /api/search  — core-direct search JSON (no MCP hop, no LLM per #40);
 //     returns the same SearchHitResponse shape the stdio MCP tool wraps.
 //   • GET /api/related — core-direct related JSON for the on-demand expander
@@ -32,6 +35,7 @@ import {
   createRequestLogger,
   type RequestLoggerOptions,
 } from './request-logger';
+import { renderConnectPage } from './render-connect-page';
 import { renderReaderNotFound, renderReaderPage } from './render-reader-page';
 import { renderSearchPage } from './render-search-page';
 
@@ -88,6 +92,16 @@ export function createWebApp(deps: ServerDeps, options: WebAppOptions = {}): Hon
       return c.html(renderReaderNotFound({ back }), 404);
     }
     return c.html(renderReaderPage(result, { back }));
+  });
+
+  // GET /connect — static "connect your AI" page (Slice W5, #50). We compute
+  // the /mcp URL from the request so the same page works against localhost,
+  // a Fly hostname, or a Cloudflare-fronted domain — no separate env var.
+  // Behind a proxy we respect x-forwarded-proto/host so the printed URL is
+  // the public one (Cloudflare terminates TLS in front).
+  app.get('/connect', (c) => {
+    const mcpUrl = buildPublicMcpUrl(c.req.raw, c.req.header('X-Forwarded-Proto'), c.req.header('X-Forwarded-Host'));
+    return c.html(renderConnectPage({ mcpUrl }));
   });
 
   // GET /api/search — core-direct, no MCP hop. Reuses the existing tool
@@ -156,6 +170,20 @@ export function createWebApp(deps: ServerDeps, options: WebAppOptions = {}): Hon
   app.on(['GET', 'DELETE'], '/mcp', (c) => c.text('Method Not Allowed', 405));
 
   return app;
+}
+
+function buildPublicMcpUrl(
+  request: Request,
+  forwardedProto: string | undefined,
+  forwardedHost: string | undefined,
+): string {
+  const url = new URL(request.url);
+  if (forwardedProto) url.protocol = `${forwardedProto.split(',')[0]!.trim()}:`;
+  if (forwardedHost) url.host = forwardedHost.split(',')[0]!.trim();
+  url.pathname = '/mcp';
+  url.search = '';
+  url.hash = '';
+  return url.toString();
 }
 
 function parseLimit(raw: string | undefined): number | undefined | Error {
