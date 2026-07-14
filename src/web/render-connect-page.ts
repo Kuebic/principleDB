@@ -89,6 +89,20 @@ export function renderConnectPage(options: RenderConnectPageOptions): string {
     </article>
 
     <article class="client">
+      <h2>Grok (grok.com)</h2>
+      <ol>
+        <li>Open <b>grok.com/connectors</b> and click <b>New Connector</b>.</li>
+        <li>Select <b>Custom</b>.</li>
+        <li>Enter the server URL: <code>${mcpUrl}</code></li>
+        <li>Leave authentication blank — the endpoint is no-auth. Grok discovers
+          the tools and offers them in conversations.</li>
+      </ol>
+      <p class="note">Grok 4.3 and later. Streamable HTTP transport (stdio is not
+        accepted), so the endpoint must be reachable on the public internet. Team
+        setups add it under <code>console.x.ai</code> → Grok Business → Connectors.</p>
+    </article>
+
+    <article class="client">
       <h2>Cursor</h2>
       <p>Add the entry to <code>~/.cursor/mcp.json</code> (create the file if it
         doesn't exist):</p>

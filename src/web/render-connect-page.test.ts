@@ -1,6 +1,6 @@
 // Connect-your-AI page renderer — Slice W5 (#50).
 // Static content: copy-paste connect steps against the deployed /mcp URL for
-// claude.ai/Desktop custom connectors, Claude Code, ChatGPT dev mode, Cursor.
+// claude.ai/Desktop custom connectors, Claude Code, ChatGPT dev mode, Grok, Cursor.
 // The endpoint is anonymous + read-only; no OpenAI search/fetch alias tools
 // (deferred, #41). This module is a pure renderer.
 
@@ -26,14 +26,24 @@ describe('renderConnectPage', () => {
     expect(html).toContain('read-only');
   });
 
-  it('names each connect step: claude.ai / Desktop, Claude Code, ChatGPT dev mode, Cursor', () => {
+  it('names each connect step: claude.ai / Desktop, Claude Code, ChatGPT dev mode, Grok, Cursor', () => {
     const html = renderConnectPage({ mcpUrl: MCP_URL });
     expect(html).toMatch(/claude\.ai/i);
     expect(html).toMatch(/claude desktop/i);
     expect(html).toMatch(/claude code/i);
     expect(html).toMatch(/chatgpt/i);
     expect(html).toMatch(/developer mode|dev mode/i);
+    expect(html).toMatch(/grok/i);
     expect(html).toMatch(/cursor/i);
+  });
+
+  it('includes the Grok custom-connector steps (grok.com/connectors → Custom → the /mcp URL)', () => {
+    // Grok 4.3+ supports custom remote MCP connectors over Streamable HTTP; the
+    // add flow is grok.com/connectors → New Connector → Custom → paste the URL.
+    const html = renderConnectPage({ mcpUrl: MCP_URL });
+    expect(html).toMatch(/grok\.com\/connectors/i);
+    expect(html).toMatch(/custom/i);
+    expect(html).toContain(MCP_URL);
   });
 
   it('includes the Claude Code CLI command with --transport http and the /mcp URL', () => {
