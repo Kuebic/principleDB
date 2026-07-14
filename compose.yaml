@@ -1,0 +1,28 @@
+# principleDB — self-host stack (issue #51, ADR-0016).
+#
+# Same one-process serve image as the Dockerfile, wired for a box that
+# already runs Caddy as a shared reverse proxy (e.g. the mfc-services host).
+#
+# The container publishes NO host ports: Caddy reaches it as
+# `principledb:3000` over the external `proxy` network and terminates TLS.
+# DB is remote (Supabase) — see .env.
+#
+# Deploy:   git pull && docker compose up -d --build
+services:
+  principledb:
+    build: .
+    image: principledb:local
+    container_name: principledb
+    restart: unless-stopped
+    env_file: .env
+    # internal only — Caddy on the `proxy` network proxies to this port.
+    expose:
+      - "3000"
+    networks:
+      - proxy
+
+# `proxy` is created and owned by the existing Caddy stack; join it, don't
+# redefine it.
+networks:
+  proxy:
+    external: true

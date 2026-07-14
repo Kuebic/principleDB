@@ -1,0 +1,15 @@
+# Keep the build context lean — the Dockerfile installs deps from the
+# lockfile inside the image, so none of this needs to ship to the daemon.
+node_modules
+.git
+.env
+.env.*
+!.env.example
+dist
+build
+*.log
+.DS_Store
+.sandcastle
+prototype/.cache.json
+prototype/.cache-ingest.json
+.codex
