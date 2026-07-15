@@ -12,7 +12,14 @@ const oneHit: SearchPrinciplesResponse = {
       principleId: 'serm1#opus#p0',
       claim: 'Grace precedes obedience.',
       score: 0.91,
-      source: { id: 'serm1', title: 'Grace and obedience', author: 'Pastor X', kind: 'sermon' },
+      source: {
+        id: 'serm1',
+        title: 'Grace and obedience',
+        author: 'Pastor X',
+        kind: 'sermon',
+        work: null,
+        figure: null,
+      },
       quote: {
         id: 'serm1#opus#q0',
         text: 'Grace precedes obedience.',
@@ -91,7 +98,14 @@ describe('renderSearchPage', () => {
           principleId: 'p<script>',
           claim: '<script>alert(1)</script>',
           score: 0.5,
-          source: { id: 's', title: '<b>X</b>', author: 'A&B', kind: 'sermon' },
+          source: {
+            id: 's',
+            title: '<b>X</b>',
+            author: 'A&B',
+            kind: 'sermon',
+            work: null,
+            figure: null,
+          },
           quote: {
             id: 'q<script>',
             text: '<img onerror=1>',

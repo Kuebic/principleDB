@@ -16,6 +16,48 @@ const sermon: Source = {
   structureMap: { kind: 'none' },
 };
 
+// A miniature Canon that mirrors the ADR-0017 core-vs-extra split so scope
+// semantics can be exercised without a real corpus. Three Works: two core
+// (each with its own Figure), one extra (under the same Figure as the second
+// core Work).
+async function seedScopedCanon(): Promise<{
+  provider: FakeIngestProvider;
+  repository: InMemoryRepository;
+}> {
+  const provider = new FakeIngestProvider((input) => [
+    { claim: `Teaching from ${input.title}.`, quote: input.text.trim() },
+  ]);
+  const repository = new InMemoryRepository();
+
+  await repository.upsertFigure({ id: 'fig_smm', slug: 'sun-myung-moon', displayName: 'Sun Myung Moon' });
+  await repository.upsertFigure({ id: 'fig_hjh', slug: 'hak-ja-han', displayName: 'Hak Ja Han' });
+
+  await repository.upsertWork({ id: 'work_csg', title: 'Cheon Seong Gyeong', figureId: 'fig_smm', tier: 'core' });
+  await repository.upsertWork({ id: 'work_tm', title: 'True Mother Anthology', figureId: 'fig_hjh', tier: 'core' });
+  await repository.upsertWork({ id: 'work_extra', title: 'Later Speeches', figureId: 'fig_hjh', tier: 'extra' });
+
+  const mkSource = (id: string, workId: string, workLabel: string): Source => ({
+    id,
+    title: `${workLabel} chapter`,
+    author: 'ingest-slug-should-not-surface',
+    kind: 'book',
+    date: '2026-01-01',
+    text: `Grace shines through ${workLabel}.`,
+    r2Key: null,
+    structureMap: { kind: 'none' },
+    workId,
+  });
+
+  const csg = mkSource('s_csg', 'work_csg', 'CSG');
+  const tm = mkSource('s_tm', 'work_tm', 'TM Anthology');
+  const extra = mkSource('s_extra', 'work_extra', 'Later Speeches');
+
+  for (const s of [csg, tm, extra]) {
+    await ingestSource(s, { provider, repository });
+  }
+  return { provider, repository };
+}
+
 describe('searchPrinciplesTool', () => {
   it("golden test: displayed quote is the source's own words at the snapped span", async () => {
     const repository = new InMemoryRepository();
@@ -116,5 +158,74 @@ describe('searchPrinciplesTool', () => {
     expect(defaultResp.hits.length).toBeLessThanOrEqual(5);
     const widerResp = await searchPrinciplesTool({ query: 'grace', limit: 10 }, { provider, repository });
     expect(widerResp.hits.length).toBeGreaterThan(defaultResp.hits.length);
+  });
+
+  it('unscoped search covers all core Works and never leaks an ingest slug in the citation', async () => {
+    const deps = await seedScopedCanon();
+    const resp = await searchPrinciplesTool({ query: 'grace shines' }, deps);
+    const sourceIds = resp.hits.map((h) => h.source.id);
+    expect(sourceIds).toContain('s_csg');
+    expect(sourceIds).toContain('s_tm');
+    // The `extra` Work must not surface in an unscoped search — even though it
+    // exists in the Canon, the default scope is "all core Works" (ADR-0017).
+    expect(sourceIds).not.toContain('s_extra');
+    for (const hit of resp.hits) {
+      // The tool's citation carries the Work title + Figure display name; the
+      // ingest-time author slug never surfaces on the new citation fields.
+      expect(hit.source.work?.title).toBeTruthy();
+      expect(hit.source.figure?.displayName).toBeTruthy();
+      expect(hit.source.work?.title).not.toBe('ingest-slug-should-not-surface');
+      expect(hit.source.figure?.displayName).not.toBe('ingest-slug-should-not-surface');
+    }
+    const csg = resp.hits.find((h) => h.source.id === 's_csg')!;
+    expect(csg.source.work?.title).toBe('Cheon Seong Gyeong');
+    expect(csg.source.figure?.displayName).toBe('Sun Myung Moon');
+  });
+
+  it('scoping by a Work id restricts hits to Sources in that Work', async () => {
+    const deps = await seedScopedCanon();
+    const resp = await searchPrinciplesTool(
+      { query: 'grace shines', works: ['work_csg'] },
+      deps,
+    );
+    expect(resp.hits.map((h) => h.source.id)).toEqual(['s_csg']);
+  });
+
+  it('scoping by a Figure id expands to every Work under that Figure (including opted-in extras of that Figure)', async () => {
+    const deps = await seedScopedCanon();
+    const resp = await searchPrinciplesTool(
+      { query: 'grace shines', figures: ['fig_hjh'] },
+      deps,
+    );
+    const ids = new Set(resp.hits.map((h) => h.source.id));
+    expect(ids).toEqual(new Set(['s_tm', 's_extra']));
+  });
+
+  it('scoping by `works` + `figures` unions the two (never intersects)', async () => {
+    const deps = await seedScopedCanon();
+    const resp = await searchPrinciplesTool(
+      { query: 'grace shines', works: ['work_csg'], figures: ['fig_hjh'] },
+      deps,
+    );
+    const ids = new Set(resp.hits.map((h) => h.source.id));
+    expect(ids).toEqual(new Set(['s_csg', 's_tm', 's_extra']));
+  });
+
+  it('naming an `extra` Work opts it in (reachable only when named)', async () => {
+    const deps = await seedScopedCanon();
+    const resp = await searchPrinciplesTool(
+      { query: 'grace shines', works: ['work_extra'] },
+      deps,
+    );
+    expect(resp.hits.map((h) => h.source.id)).toEqual(['s_extra']);
+  });
+
+  it('empty-but-valid scope (unknown ids) returns the same `{ hits: [] }` shape as a no-match', async () => {
+    const deps = await seedScopedCanon();
+    const resp = await searchPrinciplesTool(
+      { query: 'grace shines', works: ['does-not-exist'] },
+      deps,
+    );
+    expect(resp).toEqual({ hits: [] });
   });
 });

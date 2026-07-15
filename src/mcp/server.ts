@@ -45,7 +45,7 @@ export function createPrincipleDbServer(
     'search_principles',
     {
       description:
-        'Search the Canon for atomic Principles matching a natural-language query. Each hit returns the Source’s own words at the snapped span (a Quote), with a derived label (page / timecode / position) so the caller can jump to the exact spot.',
+        'Search the Canon for atomic Principles matching a natural-language query. Each hit returns the Source’s own words at the snapped span (a Quote), with a derived label (page / timecode / position) so the caller can jump to the exact spot, and a citation carrying the Work title + Figure display name (ADR-0017). Optional `works` / `figures` scope the search: omitted ⇒ all core Works; naming a Figure expands to its Works; naming an `extra` Work opts it in. Include-only.',
       inputSchema: {
         query: z.string().min(1).describe('What to search for, in natural language.'),
         limit: z
@@ -55,10 +55,18 @@ export function createPrincipleDbServer(
           .max(50)
           .optional()
           .describe('Max hits to return. Defaults to 5.'),
+        works: z
+          .array(z.string().min(1))
+          .optional()
+          .describe('Optional Work ids to search within. Union\'d with `figures`. Omitted ⇒ all core Works.'),
+        figures: z
+          .array(z.string().min(1))
+          .optional()
+          .describe('Optional Figure ids (or slugs) whose Works to search within. Union\'d with `works`. Omitted ⇒ all core Works.'),
       },
     },
-    async ({ query, limit }) => {
-      const response = await searchPrinciplesTool({ query, limit }, deps);
+    async ({ query, limit, works, figures }) => {
+      const response = await searchPrinciplesTool({ query, limit, works, figures }, deps);
       return {
         content: [{ type: 'text', text: JSON.stringify(response) }],
         structuredContent: response as unknown as Record<string, unknown>,
