@@ -166,8 +166,8 @@ export class InMemoryRepository implements CanonRepository {
   }
 
   async getEdition(id: string): Promise<Edition | null> {
-    const e = this.editions.get(id);
-    return e ? { ...e } : null;
+    const edition = this.editions.get(id);
+    return edition ? { ...edition } : null;
   }
 
   async listWorks(): Promise<WorkWithFigure[]> {
