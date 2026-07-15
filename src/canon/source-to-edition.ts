@@ -33,8 +33,8 @@ import {
   WORK_UT,
   WORK_WOGW,
   sourceToWork,
+  type SourceRow,
 } from './source-to-work';
-import type { SourceRow } from './source-to-work';
 
 export const EDITION_CSG = 'ed_csg';
 export const EDITION_DP = 'ed_dp';

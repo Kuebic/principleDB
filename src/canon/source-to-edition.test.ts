@@ -22,7 +22,7 @@ import {
   EDITION_WOGW,
   sourceToEdition,
 } from './source-to-edition';
-import { UnmappedSourceError, WORK_CSG, WORK_DP } from './source-to-work';
+import { BACKFILL_WORKS, UnmappedSourceError } from './source-to-work';
 
 describe('sourceToEdition', () => {
   it('routes the CSG author slug → CSG Edition (2013 Revised, ffwpu-post-2012)', () => {
@@ -177,18 +177,10 @@ describe('BACKFILL_EDITIONS constants', () => {
   });
 
   it('every Edition points at a real Work id from the ADR-0017 backfill', () => {
-    const workIds = new Set([WORK_CSG, WORK_DP]);
-    // Prove the workId links up — enumerating all 9 pairs is redundant; the
-    // sourceToEdition tests above already prove the per-Work partition.
-    const workIdsInBackfill = new Set(BACKFILL_EDITIONS.map((e) => e.workId));
-    expect(workIdsInBackfill.has(WORK_CSG)).toBe(true);
-    expect(workIdsInBackfill.has(WORK_DP)).toBe(true);
-    // Every Edition has a non-empty workId string.
+    const workIds = new Set(BACKFILL_WORKS.map((w) => w.id));
     for (const e of BACKFILL_EDITIONS) {
-      expect(typeof e.workId).toBe('string');
-      expect(e.workId.length).toBeGreaterThan(0);
+      expect(workIds.has(e.workId)).toBe(true);
     }
-    void workIds;
   });
 
   it('language defaults to `en` on every seeded Edition', () => {
