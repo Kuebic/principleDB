@@ -22,8 +22,6 @@ export interface SearchDeps {
 export async function searchPrinciples(query: string, deps: SearchDeps): Promise<SearchHit[]> {
   const limit = deps.limit ?? 5;
   const scopedSourceIds = await resolveScopedSourceIds(deps.scope, deps.repository);
-  // An explicit scope that resolves to nothing (unknown ids only) short-circuits
-  // to [] — no point spending an embed round-trip on a query that can't match.
   if (scopedSourceIds !== undefined && scopedSourceIds.length === 0) return [];
   const [embedding] = await deps.provider.embed([query]);
   if (!embedding) return [];
@@ -43,13 +41,8 @@ async function resolveScopedSourceIds(
   scope: Scope | undefined,
   repository: CanonRepository,
 ): Promise<string[] | undefined> {
-  const explicit = (scope?.works?.length ?? 0) > 0 || (scope?.figures?.length ?? 0) > 0;
-  if (explicit) {
-    const resolved = await resolveScope(scope!, repository);
-    return resolved.sourceIds;
-  }
-  const listings = await repository.listWorks();
-  if (listings.length === 0) return undefined;
-  const resolved = await resolveScope({}, repository);
+  const hasExplicit = (scope?.works?.length ?? 0) > 0 || (scope?.figures?.length ?? 0) > 0;
+  if (!hasExplicit && (await repository.listWorks()).length === 0) return undefined;
+  const resolved = await resolveScope(scope ?? {}, repository);
   return resolved.sourceIds;
 }

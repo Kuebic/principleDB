@@ -20,13 +20,9 @@
 // client doesn't have to special-case "nothing found".
 
 import { deriveLabel } from '../canon/derive-label';
-import type {
-  CanonRepository,
-  IngestProvider,
-  SearchHit,
-  WorkWithFigure,
-} from '../canon/ports';
+import type { CanonRepository, IngestProvider, SearchHit } from '../canon/ports';
 import { searchPrinciples } from '../canon/search';
+import type { Scope } from '../canon/scope';
 import type { SourceKind, Span } from '../canon/types';
 
 export interface SearchPrinciplesRequest {
@@ -69,14 +65,9 @@ export async function searchPrinciplesTool(
   deps: { provider: IngestProvider; repository: CanonRepository },
 ): Promise<SearchPrinciplesResponse> {
   const limit = req.limit ?? 5;
-  const scope = req.works || req.figures
-    ? { ...(req.works ? { works: req.works } : {}), ...(req.figures ? { figures: req.figures } : {}) }
-    : undefined;
-  const hits = await searchPrinciples(req.query, {
-    ...deps,
-    limit,
-    ...(scope ? { scope } : {}),
-  });
+  const scope: Scope | undefined =
+    req.works || req.figures ? { works: req.works, figures: req.figures } : undefined;
+  const hits = await searchPrinciples(req.query, { ...deps, limit, scope });
   return { hits: await toSearchHitResponses(hits, deps.repository) };
 }
 
@@ -91,7 +82,8 @@ export async function toSearchHitResponses(
   repository: CanonRepository,
 ): Promise<SearchHitResponse[]> {
   if (hits.length === 0) return [];
-  const worksByWorkId = await indexWorksById(repository);
+  const listings = await repository.listWorks();
+  const worksByWorkId = new Map(listings.map((l) => [l.work.id, l] as const));
   const responses: SearchHitResponse[] = [];
   for (const hit of hits) {
     const quote = hit.principle.quotes[0];
@@ -120,13 +112,4 @@ export async function toSearchHitResponses(
     });
   }
   return responses;
-}
-
-async function indexWorksById(
-  repository: CanonRepository,
-): Promise<Map<string, WorkWithFigure>> {
-  const listings = await repository.listWorks();
-  const byId = new Map<string, WorkWithFigure>();
-  for (const l of listings) byId.set(l.work.id, l);
-  return byId;
 }
