@@ -7,6 +7,31 @@
 
 export type SourceKind = 'sermon' | 'book' | 'article' | 'transcript';
 
+// Work tier (ADR-0017). `core` Works are searched by default (the founding
+// corpus); `extra` Works are in the Canon but opt-in per search. New Works
+// default to `extra` so the trusted default set doesn't silently grow.
+export type WorkTier = 'core' | 'extra';
+
+// A canonical teacher identity — many spellings map to one Figure
+// ("Hak Ja Han Moon" / "Hakcha Han-Moon" → one Figure). Stored as a table so
+// display name and future merges are centralized (ADR-0017).
+export interface Figure {
+  id: string;
+  slug: string;
+  displayName: string;
+}
+
+// A teaching as published (a book, or a single speech). The unit a member
+// selects for source-filtering. Every Source belongs to exactly one Work;
+// most future Works are 1-Source (a speech, an article), the scriptures are
+// many-Source (Cheon Seong Gyeong = 429 Sources).
+export interface Work {
+  id: string;
+  title: string;
+  figureId: string;
+  tier: WorkTier;
+}
+
 export interface Span {
   start: number;
   end: number;
@@ -29,6 +54,12 @@ export interface Source {
   text: string;
   r2Key: string | null;
   structureMap: StructureMap;
+  // Optional/nullable during the backfill window (ADR-0017): a one-time
+  // script assigns every existing Source to its Work. New ingest paths
+  // assign a Work at write time. Omitted vs `null` mean the same thing —
+  // unassigned; the DB column is nullable and the field is optional so
+  // existing call sites don't need to thread an explicit `null` through.
+  workId?: string | null;
 }
 
 export interface DistilProvenance {

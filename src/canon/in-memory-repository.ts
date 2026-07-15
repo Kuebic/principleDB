@@ -13,10 +13,12 @@
 import type {
   DedupDecision,
   DistilProvenance,
+  Figure,
   LocatedQuote,
   Principle,
   ReviewCandidate,
   Source,
+  Work,
 } from './types';
 import type {
   CanonRepository,
@@ -24,6 +26,7 @@ import type {
   QuoteWithPrinciple,
   ReplacePrinciplesOptions,
   SearchHit,
+  WorkWithFigure,
 } from './ports';
 
 function provenanceKey(sourceId: string, p: DistilProvenance): string {
@@ -56,6 +59,8 @@ export class InMemoryRepository implements CanonRepository {
   private readonly principlesBySlot = new Map<string, PrincipleHome[]>();
   private readonly attachedQuotesBySlot = new Map<string, LocatedQuote[]>();
   private readonly decisionsBySlot = new Map<string, DedupDecision[]>();
+  private readonly figures = new Map<string, Figure>();
+  private readonly works = new Map<string, Work>();
   private readonly review: ReviewCandidate[] = [];
   // Review-admitted Principles (slice 6, issue #6) — kept in a distinct slot
   // from `principlesBySlot` so a future ingest of the same (sourceId,
@@ -127,13 +132,49 @@ export class InMemoryRepository implements CanonRepository {
     this.reviewAdmitted.push({ principle, sourceId });
   }
 
-  async searchByEmbedding(queryEmbedding: number[], limit: number): Promise<SearchHit[]> {
-    const hits = this.allPrinciplesWithAttachedQuotes().map(({ principle }) => ({
-      principle,
-      score: cosine(queryEmbedding, principle.embedding),
-    }));
+  async searchByEmbedding(
+    queryEmbedding: number[],
+    limit: number,
+    scopedSourceIds?: readonly string[],
+  ): Promise<SearchHit[]> {
+    const scope = scopedSourceIds ? new Set(scopedSourceIds) : null;
+    if (scope && scope.size === 0) return [];
+    const hits = this.allPrinciplesWithAttachedQuotes()
+      .filter(({ sourceId }) => !scope || scope.has(sourceId))
+      .map(({ principle }) => ({
+        principle,
+        score: cosine(queryEmbedding, principle.embedding),
+      }));
     hits.sort((a, b) => b.score - a.score);
     return hits.slice(0, limit);
+  }
+
+  async upsertFigure(figure: Figure): Promise<void> {
+    this.figures.set(figure.id, { ...figure });
+  }
+
+  async upsertWork(work: Work): Promise<void> {
+    this.works.set(work.id, { ...work });
+  }
+
+  async listWorks(): Promise<WorkWithFigure[]> {
+    const out: WorkWithFigure[] = [];
+    for (const work of this.works.values()) {
+      const figure = this.figures.get(work.figureId);
+      if (!figure) continue;
+      out.push({ work, figure });
+    }
+    return out;
+  }
+
+  async listSourceIdsInWorks(workIds: string[]): Promise<string[]> {
+    if (workIds.length === 0) return [];
+    const wanted = new Set(workIds);
+    const out: string[] = [];
+    for (const source of this.sources.values()) {
+      if (source.workId && wanted.has(source.workId)) out.push(source.id);
+    }
+    return out;
   }
 
   async findSimilarPrinciplesExcludingSource(

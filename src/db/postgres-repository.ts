@@ -19,15 +19,19 @@ import type {
   QuoteWithPrinciple,
   ReplacePrinciplesOptions,
   SearchHit,
+  WorkWithFigure,
 } from '../canon/ports';
 import type {
   DistilProvenance,
+  Figure,
   LocatedQuote,
   Principle,
   ReviewCandidate,
   Source,
   SourceKind,
   StructureMap,
+  Work,
+  WorkTier,
 } from '../canon/types';
 import * as schema from './schema';
 
@@ -75,6 +79,7 @@ export class PostgresCanonRepository implements CanonRepository {
       text: source.text,
       r2Key: source.r2Key,
       structureMap: source.structureMap,
+      workId: source.workId ?? null,
     };
     await this.db
       .insert(schema.source)
@@ -99,6 +104,7 @@ export class PostgresCanonRepository implements CanonRepository {
       text: row.text,
       r2Key: row.r2Key,
       structureMap: row.structureMap as StructureMap,
+      workId: row.workId,
     };
   }
 
@@ -512,11 +518,25 @@ export class PostgresCanonRepository implements CanonRepository {
     });
   }
 
-  async searchByEmbedding(queryEmbedding: number[], limit: number): Promise<SearchHit[]> {
+  async searchByEmbedding(
+    queryEmbedding: number[],
+    limit: number,
+    scopedSourceIds?: readonly string[],
+  ): Promise<SearchHit[]> {
     // pgvector's <=> operator requires an explicit ::vector cast on the
     // parameter — drizzle's `cosineDistance` helper ships the value as an
     // untyped string parameter, which Postgres won't auto-coerce.
+    //
+    // `scopedSourceIds` (ADR-0017) is applied as a WHERE-clause pre-filter
+    // *before* ORDER BY, so a tight scope (e.g. a 4-Source Work) still gets
+    // its top-K rather than an under-filled slice from the global ranking.
+    // An empty array is a valid, deliberate "nothing selected" — short-circuit
+    // to [] rather than shipping an empty inArray() that Postgres rejects.
+    if (scopedSourceIds && scopedSourceIds.length === 0) return [];
     const distance = pgCosineDistance(schema.principle.embedding, queryEmbedding);
+    const scopeFilter = scopedSourceIds
+      ? inArray(schema.principle.sourceId, scopedSourceIds as string[])
+      : undefined;
     const rows = await this.db
       .select({
         id: schema.principle.id,
@@ -528,11 +548,73 @@ export class PostgresCanonRepository implements CanonRepository {
         score: sql<number>`1 - (${distance})`,
       })
       .from(schema.principle)
+      .where(scopeFilter)
       .orderBy(distance)
       .limit(limit);
 
     if (rows.length === 0) return [];
     return this.hydrateSearchHits(rows);
+  }
+
+  async upsertFigure(figure: Figure): Promise<void> {
+    const row = {
+      id: figure.id,
+      slug: figure.slug,
+      displayName: figure.displayName,
+    };
+    await this.db
+      .insert(schema.figure)
+      .values(row)
+      .onConflictDoUpdate({ target: schema.figure.id, set: row });
+  }
+
+  async upsertWork(work: Work): Promise<void> {
+    const row = {
+      id: work.id,
+      title: work.title,
+      figureId: work.figureId,
+      tier: work.tier,
+    };
+    await this.db
+      .insert(schema.work)
+      .values(row)
+      .onConflictDoUpdate({ target: schema.work.id, set: row });
+  }
+
+  async listWorks(): Promise<WorkWithFigure[]> {
+    const rows = await this.db
+      .select({
+        workId: schema.work.id,
+        workTitle: schema.work.title,
+        workTier: schema.work.tier,
+        figureId: schema.figure.id,
+        figureSlug: schema.figure.slug,
+        figureDisplayName: schema.figure.displayName,
+      })
+      .from(schema.work)
+      .innerJoin(schema.figure, eq(schema.work.figureId, schema.figure.id));
+    return rows.map((r) => ({
+      work: {
+        id: r.workId,
+        title: r.workTitle,
+        figureId: r.figureId,
+        tier: r.workTier as WorkTier,
+      },
+      figure: {
+        id: r.figureId,
+        slug: r.figureSlug,
+        displayName: r.figureDisplayName,
+      },
+    }));
+  }
+
+  async listSourceIdsInWorks(workIds: string[]): Promise<string[]> {
+    if (workIds.length === 0) return [];
+    const rows = await this.db
+      .select({ id: schema.source.id })
+      .from(schema.source)
+      .where(inArray(schema.source.workId, workIds));
+    return rows.map((r) => r.id);
   }
 
   private async hydrateSearchHits(

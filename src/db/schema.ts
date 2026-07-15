@@ -31,6 +31,32 @@ import type { StructureMap } from '../canon/types';
 
 export const EMBEDDING_DIM = 1536 as const;
 
+// Figure — the teacher a Work is attributed to (ADR-0017). Stored as its own
+// small table (not a string on Work) because the domain defines a Figure as a
+// canonical identity, not a spelling ("Hak Ja Han Moon" and "Hakcha Han-Moon"
+// are one Figure). The `slug` is a stable machine key; `display_name` is what
+// citations render.
+export const figure = pgTable('figure', {
+  id: text('id').primaryKey(),
+  slug: text('slug').notNull().unique(),
+  displayName: text('display_name').notNull(),
+});
+
+// Work — a teaching as published (a book, or a single speech). The unit a
+// member selects in source-filtering (ADR-0017). A Work belongs to exactly
+// one Figure and carries a `core`/`extra` tier: `core` Works are searched by
+// default, `extra` Works are opt-in per search. Later ingest defaults to
+// `extra` so the founding corpus (the current 7 Works) stays the trusted
+// default.
+export const work = pgTable('work', {
+  id: text('id').primaryKey(),
+  title: text('title').notNull(),
+  figureId: text('figure_id')
+    .notNull()
+    .references(() => figure.id, { onDelete: 'restrict' }),
+  tier: text('tier').notNull(),
+});
+
 export const source = pgTable('source', {
   id: text('id').primaryKey(),
   title: text('title').notNull(),
@@ -40,6 +66,10 @@ export const source = pgTable('source', {
   text: text('text').notNull(),
   r2Key: text('r2_key'),
   structureMap: jsonb('structure_map').$type<StructureMap>().notNull(),
+  // Nullable during the backfill window (ADR-0017): the migration adds the
+  // column, then a one-time script assigns every existing Source to its
+  // Work. New ingest paths must assign a Work at write time.
+  workId: text('work_id').references(() => work.id, { onDelete: 'restrict' }),
 });
 
 export const principle = pgTable(

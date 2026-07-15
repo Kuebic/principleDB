@@ -13,10 +13,12 @@ import type {
   DedupDecision,
   DistilProvenance,
   DistilledItem,
+  Figure,
   LocatedQuote,
   Principle,
   ReviewCandidate,
   Source,
+  Work,
 } from './types';
 
 export interface DistilInput {
@@ -48,6 +50,14 @@ export interface IngestProvider {
 export interface SearchHit {
   principle: Principle;
   score: number;
+}
+
+// Denormalized listing for the Figure-grouped picker + `list_works` MCP tool
+// (ADR-0017). One row per Work with its Figure pre-joined so callers render
+// grouped output without a second round-trip.
+export interface WorkWithFigure {
+  work: Work;
+  figure: Figure;
 }
 
 // Minimal join shape getQuoteInContext needs: the located Quote plus the claim of
@@ -101,7 +111,28 @@ export interface CanonRepository {
   getReviewCandidate(id: string): Promise<ReviewCandidate | null>;
   removeReviewCandidate(id: string): Promise<void>;
   insertReviewAdmittedPrinciple(principle: Principle, sourceId: string): Promise<void>;
-  searchByEmbedding(queryEmbedding: number[], limit: number): Promise<SearchHit[]>;
+  // Work/Figure grouping layer (ADR-0017). `upsertFigure`/`upsertWork` back
+  // the one-time backfill and future ingest's Work-assignment step; both are
+  // idempotent by primary key so re-running is safe.
+  upsertFigure(figure: Figure): Promise<void>;
+  upsertWork(work: Work): Promise<void>;
+  // Every Work with its Figure pre-joined — feeds the web picker + the
+  // `list_works` MCP tool.
+  listWorks(): Promise<WorkWithFigure[]>;
+  // Resolves a set of Work ids to the Source ids that belong to them. The
+  // scope resolver uses this to compute the concrete pre-filter set from a
+  // Work/Figure scope. Returns [] for an empty input.
+  listSourceIdsInWorks(workIds: string[]): Promise<string[]>;
+  // `scopedSourceIds`, when provided, restricts the search to Principles
+  // whose home Source is in the set — applied as a SQL pre-filter *before*
+  // top-K so tight scopes still return their best matches (ADR-0017). An
+  // empty array = no matches; omitting the arg preserves the unscoped
+  // behavior existing callers rely on.
+  searchByEmbedding(
+    queryEmbedding: number[],
+    limit: number,
+    scopedSourceIds?: readonly string[],
+  ): Promise<SearchHit[]>;
   // Vector prefilter for dedup. Returns the top-`limit` Principles whose
   // embedding is at or above `threshold` cosine to `embedding`, EXCLUDING any
   // Principle whose origin is `excludeSourceId` — dedup is a cross-Source

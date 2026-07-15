@@ -40,6 +40,10 @@ const sermon: Source = {
   ].join('\n'),
   r2Key: null,
   structureMap: { kind: 'none' },
+  // workId is nullable during the backfill window (ADR-0017); an
+  // unassigned Source round-trips as `null`, so pin it here for the
+  // round-trip assertion.
+  workId: null,
 };
 
 const provenanceA: DistilProvenance = {
@@ -70,9 +74,12 @@ describe.skipIf(!DATABASE_URL)('PostgresCanonRepository (integration)', () => {
   }, 30_000);
 
   beforeEach(async () => {
-    // Clean state between tests so each can use stable IDs.
+    // Clean state between tests so each can use stable IDs. Work + Figure
+    // truncate last: `source.work_id → work.id` is ON DELETE RESTRICT (a Work
+    // with Sources cannot be dropped), so Sources must go first; TRUNCATE on
+    // one statement lifts that ordering.
     await pool.query(
-      `TRUNCATE "${schema}"."dedup_decision", "${schema}"."review_candidate", "${schema}"."quote", "${schema}"."principle", "${schema}"."source" CASCADE`,
+      `TRUNCATE "${schema}"."dedup_decision", "${schema}"."review_candidate", "${schema}"."quote", "${schema}"."principle", "${schema}"."source", "${schema}"."work", "${schema}"."figure" CASCADE`,
     );
   });
 
@@ -556,6 +563,81 @@ describe.skipIf(!DATABASE_URL)('PostgresCanonRepository (integration)', () => {
       await repo.removeReviewCandidate('serm1#m#r0');
       expect(await repo.getReviewCandidate('serm1#m#r0')).toBeNull();
       expect(await repo.countReviewCandidates()).toBe(0);
+    });
+
+    it('scoped searchByEmbedding tight-scopes to a Work and still returns its best match (ADR-0017 pre-filter)', async () => {
+      // Populate the same claim in TWO Sources under different Works. An
+      // unscoped search sees both; a scope pinning one Source returns only
+      // that Source's match — proving the filter runs BEFORE top-K, not
+      // after (a post-filter over global top-K would under-return).
+      const provider = new FakeIngestProvider(
+        () => [{ claim: 'Grace precedes obedience.', quote: 'Grace precedes obedience.' }],
+        provenanceA,
+        EMBEDDING_DIM,
+      );
+      await repo.upsertFigure({ id: 'fig_smm', slug: 'sun-myung-moon', displayName: 'Sun Myung Moon' });
+      await repo.upsertFigure({ id: 'fig_hjh', slug: 'hak-ja-han', displayName: 'Hak Ja Han' });
+      await repo.upsertWork({ id: 'work_csg', title: 'Cheon Seong Gyeong', figureId: 'fig_smm', tier: 'core' });
+      await repo.upsertWork({ id: 'work_tm', title: 'True Mother Anthology', figureId: 'fig_hjh', tier: 'core' });
+
+      const srcCsg: Source = { ...sermon, id: 'src_csg', workId: 'work_csg' };
+      const srcTm: Source = { ...sermon, id: 'src_tm', workId: 'work_tm' };
+      await ingestSource(srcCsg, { provider, repository: repo });
+      await ingestSource(srcTm, { provider, repository: repo });
+
+      const [embedding] = await provider.embed(['grace and obedience']);
+      const scoped = await repo.searchByEmbedding(embedding!, 5, ['src_tm']);
+      expect(scoped).toHaveLength(1);
+      expect(scoped[0]!.principle.quotes[0]!.sourceId).toBe('src_tm');
+
+      const unscoped = await repo.searchByEmbedding(embedding!, 5);
+      expect(unscoped.length).toBeGreaterThanOrEqual(2);
+    });
+
+    it('searchByEmbedding with an empty scope short-circuits to [] (no query issued)', async () => {
+      const provider = new FakeIngestProvider(
+        () => [{ claim: 'Grace precedes obedience.', quote: 'Grace precedes obedience.' }],
+        provenanceA,
+        EMBEDDING_DIM,
+      );
+      await ingestSource(sermon, { provider, repository: repo });
+      const [embedding] = await provider.embed(['grace']);
+      expect(await repo.searchByEmbedding(embedding!, 5, [])).toEqual([]);
+    });
+
+    it('listWorks joins each Work to its Figure; listSourceIdsInWorks returns the Sources that belong to them', async () => {
+      await repo.upsertFigure({ id: 'fig_smm', slug: 'sun-myung-moon', displayName: 'Sun Myung Moon' });
+      await repo.upsertWork({ id: 'work_a', title: 'A', figureId: 'fig_smm', tier: 'core' });
+      await repo.upsertWork({ id: 'work_b', title: 'B', figureId: 'fig_smm', tier: 'extra' });
+
+      await repo.upsertSource({ ...sermon, id: 's_a', workId: 'work_a' });
+      await repo.upsertSource({ ...sermon, id: 's_b', workId: 'work_b' });
+
+      const listings = await repo.listWorks();
+      expect(listings).toHaveLength(2);
+      const a = listings.find((l) => l.work.id === 'work_a')!;
+      expect(a.work.tier).toBe('core');
+      expect(a.figure.slug).toBe('sun-myung-moon');
+      expect(listings.find((l) => l.work.id === 'work_b')!.work.tier).toBe('extra');
+
+      const ids = await repo.listSourceIdsInWorks(['work_a']);
+      expect(ids).toEqual(['s_a']);
+      const both = await repo.listSourceIdsInWorks(['work_a', 'work_b']);
+      expect(new Set(both)).toEqual(new Set(['s_a', 's_b']));
+      expect(await repo.listSourceIdsInWorks([])).toEqual([]);
+    });
+
+    it('upsertFigure/upsertWork are idempotent (re-upsert updates in place, no dup PK)', async () => {
+      await repo.upsertFigure({ id: 'fig_smm', slug: 'sun-myung-moon', displayName: 'Sun Myung Moon' });
+      await repo.upsertFigure({ id: 'fig_smm', slug: 'sun-myung-moon', displayName: 'Rev. Sun Myung Moon' });
+      await repo.upsertWork({ id: 'work_x', title: 'X', figureId: 'fig_smm', tier: 'core' });
+      await repo.upsertWork({ id: 'work_x', title: 'X (revised)', figureId: 'fig_smm', tier: 'extra' });
+
+      const listings = await repo.listWorks();
+      expect(listings).toHaveLength(1);
+      expect(listings[0]!.work.title).toBe('X (revised)');
+      expect(listings[0]!.work.tier).toBe('extra');
+      expect(listings[0]!.figure.displayName).toBe('Rev. Sun Myung Moon');
     });
 
     it('insertReviewAdmittedPrinciple inserts the Principle + its Quote and search surfaces it', async () => {

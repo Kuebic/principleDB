@@ -14,10 +14,12 @@ import {
   bulkProgress,
   dedupDecision,
   EMBEDDING_DIM,
+  figure,
   principle,
   quote,
   reviewCandidate,
   source,
+  work,
 } from './schema';
 
 function column(table: PgTable, name: string) {
@@ -166,6 +168,40 @@ describe('declarative Drizzle schema (ADR-0005)', () => {
       // Composite PK lives on `extraConfigs`, not on individual columns.
       const pkColumns = cfg.primaryKeys[0]?.columns.map((c) => c.name).sort();
       expect(pkColumns).toEqual(['phase', 'source_id']);
+    });
+  });
+
+  describe('figure + work tables back source-filtering (ADR-0017)', () => {
+    it('figure has id PK, unique slug, display name', () => {
+      expect(column(figure, 'id').primary).toBe(true);
+      expect(column(figure, 'slug').notNull).toBe(true);
+      expect(column(figure, 'display_name').notNull).toBe(true);
+      // Slug uniqueness lets the backfill upsert idempotently by natural key
+      // and gives URLs/MCP a stable, human-readable handle per Figure.
+      expect(column(figure, 'slug').isUnique).toBe(true);
+    });
+
+    it('work has id PK, title, tier, and a FK to figure', () => {
+      expect(column(work, 'id').primary).toBe(true);
+      expect(column(work, 'title').notNull).toBe(true);
+      expect(column(work, 'tier').notNull).toBe(true);
+      expect(column(work, 'figure_id').notNull).toBe(true);
+      expect(fkTargets(work)).toContainEqual({
+        column: 'figure_id',
+        refTable: 'figure',
+        refColumn: 'id',
+      });
+    });
+
+    it('source.work_id is nullable during the backfill window and FKs to work', () => {
+      // Nullable so the migration lands without a data change; the backfill
+      // populates it. New ingest paths assign a Work at write time.
+      expect(column(source, 'work_id').notNull).toBe(false);
+      expect(fkTargets(source)).toContainEqual({
+        column: 'work_id',
+        refTable: 'work',
+        refColumn: 'id',
+      });
     });
   });
 
