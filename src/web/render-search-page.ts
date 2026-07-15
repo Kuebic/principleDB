@@ -279,6 +279,12 @@ a:hover { text-decoration: underline; }
   color: var(--accent); font-size: 13px; font-weight: 600; padding: 0; }
 .hit .more-sources { margin-top: 10px; cursor: pointer; background: transparent; border: 0;
   color: var(--accent); font-size: 13px; font-weight: 600; padding: 0; }
+.hit .more-sources[aria-busy="true"] { cursor: default; }
+.hit .more-sources .spin { display: inline-block; width: 11px; height: 11px; margin-right: 6px;
+  vertical-align: -1px; border: 2px solid var(--accent-soft); border-top-color: var(--accent);
+  border-radius: 50%; animation: pdb-spin 0.7s linear infinite; }
+@keyframes pdb-spin { to { transform: rotate(360deg); } }
+@media (prefers-reduced-motion: reduce) { .hit .more-sources .spin { animation: none; } }
 .extras { margin-top: 10px; display: flex; flex-direction: column; gap: 10px; }
 .extras blockquote { margin: 0; padding: 10px 14px; border-left: 3px solid var(--accent-soft);
   background: var(--paper-2); border-radius: 0 8px 8px 0; font-family: var(--serif); font-size: 16px; }
@@ -390,6 +396,17 @@ document.addEventListener('click', function (event) {
   panel.dataset.loading = 'true';
   panel.hidden = false;
   trigger.setAttribute('aria-expanded', 'true');
+  // Collecting the other Sources can take several seconds; show a spinner on the
+  // trigger so it doesn't read as frozen. Success overwrites the label below;
+  // the error path restores it from originalLabel.
+  var originalLabel = trigger.textContent;
+  trigger.setAttribute('aria-busy', 'true');
+  var spinner = document.createElement('span');
+  spinner.className = 'spin';
+  spinner.setAttribute('aria-hidden', 'true');
+  trigger.textContent = '';
+  trigger.appendChild(spinner);
+  trigger.appendChild(document.createTextNode('Collecting sources…'));
   var offset = parseInt(panel.dataset.offset || '0', 10);
   fetch('/api/quotes?principleId=' + encodeURIComponent(principleId) + '&offset=' + offset)
     .then(function (r) { return r.ok ? r.json() : Promise.reject(new Error('fetch failed')); })
@@ -402,6 +419,7 @@ document.addEventListener('click', function (event) {
       var loaded = offset + quotes.length;
       panel.dataset.offset = String(loaded);
       panel.dataset.loading = 'false';
+      trigger.removeAttribute('aria-busy');
       var totalExtras = parseInt(trigger.dataset.totalExtras || '0', 10);
       var remaining = totalExtras - loaded;
       if (!hasMore || remaining < 1) {
@@ -412,6 +430,8 @@ document.addEventListener('click', function (event) {
     })
     .catch(function () {
       panel.dataset.loading = 'false';
+      trigger.removeAttribute('aria-busy');
+      trigger.textContent = originalLabel;
     });
 });
 function buildExtraQuoteNode(q) {

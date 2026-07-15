@@ -299,6 +299,18 @@ describe('renderSearchPage', () => {
     expect(html).toContain('data-total-extras="3"');
   });
 
+  it('ships the extras-expander busy indicator so the ~5-10s fetch does not read as frozen', () => {
+    // Behavioral seam is the embedded CLIENT_SCRIPT (no DOM harness in this
+    // suite), so assert the wiring is present: the spinner CSS, the busy
+    // attribute the client toggles, and the pending label it swaps in.
+    const html = renderSearchPage({ query: 'grace', response: oneHit });
+    expect(html).toContain('.more-sources .spin');
+    expect(html).toContain("setAttribute('aria-busy', 'true')");
+    expect(html).toContain('Collecting sources');
+    // The error path must restore the original label so a failed load is retryable.
+    expect(html).toContain('trigger.textContent = originalLabel');
+  });
+
   it('renders NO "+ N more sources" control when quoteCount === 1 (#63/#64)', () => {
     const html = renderSearchPage({ query: 'grace', response: oneHit });
     // The rendered button is uniquely identified by its class; both label
