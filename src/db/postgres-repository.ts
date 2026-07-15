@@ -19,6 +19,7 @@ import type {
   QuoteWithPrinciple,
   ReplacePrinciplesOptions,
   SearchHit,
+  SourceRefForBackfill,
   WorkWithFigure,
 } from '../canon/ports';
 import type {
@@ -615,6 +616,30 @@ export class PostgresCanonRepository implements CanonRepository {
       .from(schema.source)
       .where(inArray(schema.source.workId, workIds));
     return rows.map((r) => r.id);
+  }
+
+  async listSourceRefsForBackfill(): Promise<SourceRefForBackfill[]> {
+    const rows = await this.db
+      .select({
+        id: schema.source.id,
+        author: schema.source.author,
+        title: schema.source.title,
+        workId: schema.source.workId,
+      })
+      .from(schema.source);
+    return rows.map((r) => ({
+      id: r.id,
+      author: r.author,
+      title: r.title,
+      workId: r.workId,
+    }));
+  }
+
+  async assignSourceToWork(sourceId: string, workId: string): Promise<void> {
+    await this.db
+      .update(schema.source)
+      .set({ workId })
+      .where(eq(schema.source.id, sourceId));
   }
 
   private async hydrateSearchHits(

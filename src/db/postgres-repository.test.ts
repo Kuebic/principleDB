@@ -627,6 +627,29 @@ describe.skipIf(!DATABASE_URL)('PostgresCanonRepository (integration)', () => {
       expect(await repo.listSourceIdsInWorks([])).toEqual([]);
     });
 
+    it('listSourceRefsForBackfill + assignSourceToWork feed the one-time backfill (issue #54)', async () => {
+      // Two Sources land as unassigned (workId null — the state right after
+      // the ADR-0017 schema migration and before the backfill runs).
+      await repo.upsertSource({ ...sermon, id: 's_a' });
+      await repo.upsertSource({ ...sermon, id: 's_b' });
+      await repo.upsertFigure({ id: 'fig_smm', slug: 'sun-myung-moon', displayName: 'Sun Myung Moon' });
+      await repo.upsertWork({ id: 'work_a', title: 'A', figureId: 'fig_smm', tier: 'core' });
+
+      const refsBefore = await repo.listSourceRefsForBackfill();
+      const before = refsBefore.filter((r) => r.id === 's_a' || r.id === 's_b');
+      expect(before.map((r) => r.workId).sort()).toEqual([null, null]);
+      // Lightweight ref — no `text` column leaks into the shape.
+      expect(before[0]).not.toHaveProperty('text');
+
+      await repo.assignSourceToWork('s_a', 'work_a');
+      const idsInWorkA = await repo.listSourceIdsInWorks(['work_a']);
+      expect(idsInWorkA).toEqual(['s_a']);
+
+      const refsAfter = await repo.listSourceRefsForBackfill();
+      const after = refsAfter.find((r) => r.id === 's_a')!;
+      expect(after.workId).toBe('work_a');
+    });
+
     it('upsertFigure/upsertWork are idempotent (re-upsert updates in place, no dup PK)', async () => {
       await repo.upsertFigure({ id: 'fig_smm', slug: 'sun-myung-moon', displayName: 'Sun Myung Moon' });
       await repo.upsertFigure({ id: 'fig_smm', slug: 'sun-myung-moon', displayName: 'Rev. Sun Myung Moon' });

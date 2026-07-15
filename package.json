@@ -17,6 +17,7 @@
     "ingest:dir": "tsx bin/principledb-ingest-dir.ts",
     "ingest:pdf": "tsx bin/principledb-ingest-pdf.ts",
     "ingest:dunkley": "tsx scripts/ingest-dunkley.ts",
+    "backfill:works": "tsx scripts/backfill-works.ts",
     "doctor": "tsx bin/principledb-doctor.ts",
     "db:migrate": "tsx bin/principledb-migrate.ts",
     "typecheck": "tsc --noEmit",

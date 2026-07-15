@@ -26,6 +26,7 @@ import type {
   QuoteWithPrinciple,
   ReplacePrinciplesOptions,
   SearchHit,
+  SourceRefForBackfill,
   WorkWithFigure,
 } from './ports';
 
@@ -175,6 +176,21 @@ export class InMemoryRepository implements CanonRepository {
       if (source.workId && wanted.has(source.workId)) out.push(source.id);
     }
     return out;
+  }
+
+  async listSourceRefsForBackfill(): Promise<SourceRefForBackfill[]> {
+    return [...this.sources.values()].map((s) => ({
+      id: s.id,
+      author: s.author,
+      title: s.title,
+      workId: s.workId ?? null,
+    }));
+  }
+
+  async assignSourceToWork(sourceId: string, workId: string): Promise<void> {
+    const existing = this.sources.get(sourceId);
+    if (!existing) return;
+    this.sources.set(sourceId, { ...existing, workId });
   }
 
   async findSimilarPrinciplesExcludingSource(

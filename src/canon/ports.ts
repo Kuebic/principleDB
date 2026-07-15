@@ -60,6 +60,16 @@ export interface WorkWithFigure {
   figure: Figure;
 }
 
+// Lightweight Source ref for the backfill (issue #54). `text` +
+// `structure_map` are deliberately omitted so 615 rows (or more) fit
+// comfortably in memory during the one-time assignment pass.
+export interface SourceRefForBackfill {
+  id: string;
+  author: string;
+  title: string;
+  workId: string | null;
+}
+
 // Minimal join shape getQuoteInContext needs: the located Quote plus the claim of
 // the Principle it backs. Source is fetched separately via getSource() so the
 // repository doesn't have to triple-join on what is fundamentally a lookup.
@@ -123,6 +133,17 @@ export interface CanonRepository {
   // scope resolver uses this to compute the concrete pre-filter set from a
   // Work/Figure scope. Returns [] for an empty input.
   listSourceIdsInWorks(workIds: string[]): Promise<string[]>;
+  // Lightweight rows the one-time backfill (issue #54, ADR-0017) reads to
+  // assign every existing Source to its Work. Deliberately omits `text` and
+  // `structure_map` so the whole Canon fits in memory during the assignment
+  // pass. `workId` is included so a re-run can be logged as "already
+  // assigned" — idempotence is a first-class property of the script.
+  listSourceRefsForBackfill(): Promise<SourceRefForBackfill[]>;
+  // Narrow UPDATE (issue #54): sets `source.work_id` without rewriting the
+  // rest of the row. Backs the backfill and future ingest's Work-assignment
+  // step — a full `upsertSource` would rewrite the (potentially large) text
+  // column for no reason.
+  assignSourceToWork(sourceId: string, workId: string): Promise<void>;
   // `scopedSourceIds`, when provided, restricts the search to Principles
   // whose home Source is in the set — applied as a SQL pre-filter *before*
   // top-K so tight scopes still return their best matches (ADR-0017). An
