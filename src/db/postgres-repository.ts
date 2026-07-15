@@ -25,6 +25,7 @@ import type {
 } from '../canon/ports';
 import type {
   DistilProvenance,
+  Edition,
   Figure,
   LocatedQuote,
   Principle,
@@ -82,6 +83,7 @@ export class PostgresCanonRepository implements CanonRepository {
       r2Key: source.r2Key,
       structureMap: source.structureMap,
       workId: source.workId ?? null,
+      editionId: source.editionId ?? null,
     };
     await this.db
       .insert(schema.source)
@@ -107,6 +109,7 @@ export class PostgresCanonRepository implements CanonRepository {
       r2Key: row.r2Key,
       structureMap: row.structureMap as StructureMap,
       workId: row.workId,
+      editionId: row.editionId,
     };
   }
 
@@ -431,6 +434,7 @@ export class PostgresCanonRepository implements CanonRepository {
         sourceR2Key: schema.source.r2Key,
         sourceStructureMap: schema.source.structureMap,
         sourceWorkId: schema.source.workId,
+        sourceEditionId: schema.source.editionId,
       })
       .from(schema.quote)
       .innerJoin(schema.source, eq(schema.quote.sourceId, schema.source.id))
@@ -462,6 +466,7 @@ export class PostgresCanonRepository implements CanonRepository {
         r2Key: r.sourceR2Key,
         structureMap: r.sourceStructureMap as StructureMap,
         workId: r.sourceWorkId,
+        editionId: r.sourceEditionId,
       },
     }));
   }
@@ -658,6 +663,43 @@ export class PostgresCanonRepository implements CanonRepository {
       .insert(schema.work)
       .values(row)
       .onConflictDoUpdate({ target: schema.work.id, set: row });
+  }
+
+  async upsertEdition(edition: Edition): Promise<void> {
+    const row = {
+      id: edition.id,
+      workId: edition.workId,
+      label: edition.label,
+      recension: edition.recension,
+      language: edition.language,
+      publishedDate: edition.publishedDate,
+      publisher: edition.publisher,
+      notes: edition.notes,
+    };
+    await this.db
+      .insert(schema.edition)
+      .values(row)
+      .onConflictDoUpdate({ target: schema.edition.id, set: row });
+  }
+
+  async getEdition(id: string): Promise<Edition | null> {
+    const rows = await this.db
+      .select()
+      .from(schema.edition)
+      .where(eq(schema.edition.id, id))
+      .limit(1);
+    const row = rows[0];
+    if (!row) return null;
+    return {
+      id: row.id,
+      workId: row.workId,
+      label: row.label,
+      recension: row.recension,
+      language: row.language,
+      publishedDate: row.publishedDate,
+      publisher: row.publisher,
+      notes: row.notes,
+    };
   }
 
   async listWorks(): Promise<WorkWithFigure[]> {

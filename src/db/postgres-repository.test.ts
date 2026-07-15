@@ -44,6 +44,10 @@ const sermon: Source = {
   // unassigned Source round-trips as `null`, so pin it here for the
   // round-trip assertion.
   workId: null,
+  // editionId is nullable during the ADR-0018 backfill window (issue #59): the
+  // migration adds the column, then a later slice (#60) assigns every Source
+  // to its Edition. New ingest paths will assign an Edition at write time.
+  editionId: null,
 };
 
 const provenanceA: DistilProvenance = {
@@ -77,9 +81,11 @@ describe.skipIf(!DATABASE_URL)('PostgresCanonRepository (integration)', () => {
     // Clean state between tests so each can use stable IDs. Work + Figure
     // truncate last: `source.work_id → work.id` is ON DELETE RESTRICT (a Work
     // with Sources cannot be dropped), so Sources must go first; TRUNCATE on
-    // one statement lifts that ordering.
+    // one statement lifts that ordering. `edition` sits between Work and
+    // Source (ADR-0018) and shares the same RESTRICT posture — folding it
+    // into the same TRUNCATE statement lifts the ordering constraint too.
     await pool.query(
-      `TRUNCATE "${schema}"."dedup_decision", "${schema}"."review_candidate", "${schema}"."quote", "${schema}"."principle", "${schema}"."source", "${schema}"."work", "${schema}"."figure" CASCADE`,
+      `TRUNCATE "${schema}"."dedup_decision", "${schema}"."review_candidate", "${schema}"."quote", "${schema}"."principle", "${schema}"."source", "${schema}"."edition", "${schema}"."work", "${schema}"."figure" CASCADE`,
     );
   });
 
@@ -741,6 +747,42 @@ describe.skipIf(!DATABASE_URL)('PostgresCanonRepository (integration)', () => {
       expect(listings[0]!.work.title).toBe('X (revised)');
       expect(listings[0]!.work.tier).toBe('extra');
       expect(listings[0]!.figure.displayName).toBe('Rev. Sun Myung Moon');
+    });
+
+    it('upsertEdition + getEdition round-trip; Source.editionId FKs to edition (ADR-0018)', async () => {
+      await repo.upsertFigure({ id: 'fig_smm', slug: 'sun-myung-moon', displayName: 'Sun Myung Moon' });
+      await repo.upsertWork({ id: 'work_csg', title: 'Cheon Seong Gyeong', figureId: 'fig_smm', tier: 'core' });
+      await repo.upsertEdition({
+        id: 'ed_csg_2013',
+        workId: 'work_csg',
+        label: '2013 Revised',
+        recension: 'ffwpu-post-2012',
+        language: 'en',
+        publishedDate: null,
+        publisher: null,
+        notes: null,
+      });
+      // A re-upsert with an updated label overwrites in place (idempotent PK).
+      await repo.upsertEdition({
+        id: 'ed_csg_2013',
+        workId: 'work_csg',
+        label: 'Cheon Seong Gyeong — 2013 Revised',
+        recension: 'ffwpu-post-2012',
+        language: 'en',
+        publishedDate: '2013-01-01',
+        publisher: 'FFWPU',
+        notes: null,
+      });
+      const fetched = await repo.getEdition('ed_csg_2013');
+      expect(fetched?.label).toBe('Cheon Seong Gyeong — 2013 Revised');
+      expect(fetched?.publishedDate).toBe('2013-01-01');
+      expect(fetched?.publisher).toBe('FFWPU');
+      expect(fetched?.language).toBe('en');
+
+      // Source carries the FK; upsert + get round-trips the assignment.
+      await repo.upsertSource({ ...sermon, id: 's_csg_1', workId: 'work_csg', editionId: 'ed_csg_2013' });
+      const src = await repo.getSource('s_csg_1');
+      expect(src?.editionId).toBe('ed_csg_2013');
     });
 
     it('insertReviewAdmittedPrinciple inserts the Principle + its Quote and search surfaces it', async () => {

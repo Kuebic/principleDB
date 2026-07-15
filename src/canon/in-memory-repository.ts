@@ -13,6 +13,7 @@
 import type {
   DedupDecision,
   DistilProvenance,
+  Edition,
   Figure,
   LocatedQuote,
   Principle,
@@ -63,6 +64,7 @@ export class InMemoryRepository implements CanonRepository {
   private readonly decisionsBySlot = new Map<string, DedupDecision[]>();
   private readonly figures = new Map<string, Figure>();
   private readonly works = new Map<string, Work>();
+  private readonly editions = new Map<string, Edition>();
   private readonly review: ReviewCandidate[] = [];
   // Review-admitted Principles (slice 6, issue #6) — kept in a distinct slot
   // from `principlesBySlot` so a future ingest of the same (sourceId,
@@ -157,6 +159,15 @@ export class InMemoryRepository implements CanonRepository {
 
   async upsertWork(work: Work): Promise<void> {
     this.works.set(work.id, { ...work });
+  }
+
+  async upsertEdition(edition: Edition): Promise<void> {
+    this.editions.set(edition.id, { ...edition });
+  }
+
+  async getEdition(id: string): Promise<Edition | null> {
+    const e = this.editions.get(id);
+    return e ? { ...e } : null;
   }
 
   async listWorks(): Promise<WorkWithFigure[]> {

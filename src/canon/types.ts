@@ -32,6 +32,28 @@ export interface Work {
   tier: WorkTier;
 }
 
+// A specific published recension of a Work (ADR-0018). A Work can carry
+// multiple Editions when it has more than one published recension (e.g. CSG
+// pre-ascension vs 2013 Revised). Every Source belongs to exactly one Edition;
+// citations show the Edition label alongside the Work title + Figure so a
+// reader never mistakes a contested recension for neutral scripture.
+//
+// `recension` is a documented controlled vocabulary (e.g. `ffwpu-post-2012`,
+// `pre-ascension-original`, `external-discourse`) — a text tag, not a table
+// (mirrors `work.tier`). `language` is stored on the Edition (not per-Quote)
+// because a whole published Edition is in one source language; a Quote's
+// language derives Source → Edition.
+export interface Edition {
+  id: string;
+  workId: string;
+  label: string;
+  recension: string;
+  language: string;
+  publishedDate: string | null;
+  publisher: string | null;
+  notes: string | null;
+}
+
 export interface Span {
   start: number;
   end: number;
@@ -60,6 +82,11 @@ export interface Source {
   // unassigned; the DB column is nullable and the field is optional so
   // existing call sites don't need to thread an explicit `null` through.
   workId?: string | null;
+  // Same expand-then-contract posture (ADR-0018): the schema slice (#59)
+  // adds `edition_id` nullable, the backfill slice (#60) populates it, and
+  // the resolution slice (#61) drops `work_id`, leaving `edition_id` as the
+  // single link from Source up the hierarchy.
+  editionId?: string | null;
 }
 
 export interface DistilProvenance {

@@ -57,6 +57,27 @@ export const work = pgTable('work', {
   tier: text('tier').notNull(),
 });
 
+// Edition — a specific published recension of a Work (ADR-0018). Sits between
+// Work and Source: Work → Editions → Sources. `recension` is a documented
+// controlled vocabulary (e.g. `ffwpu-post-2012`, `pre-ascension-original`,
+// `external-discourse`) — a text tag, not a table (mirrors `work.tier`).
+// `language` is stored on the Edition (not per-Quote) because a published
+// Edition is in one source language; a Quote's language derives Source →
+// Edition. Publication provenance columns are nullable — we don't always
+// know them.
+export const edition = pgTable('edition', {
+  id: text('id').primaryKey(),
+  workId: text('work_id')
+    .notNull()
+    .references(() => work.id, { onDelete: 'restrict' }),
+  label: text('label').notNull(),
+  recension: text('recension').notNull(),
+  language: text('language').notNull().default('en'),
+  publishedDate: text('published_date'),
+  publisher: text('publisher'),
+  notes: text('notes'),
+});
+
 export const source = pgTable('source', {
   id: text('id').primaryKey(),
   title: text('title').notNull(),
@@ -70,6 +91,11 @@ export const source = pgTable('source', {
   // column, then a one-time script assigns every existing Source to its
   // Work. New ingest paths must assign a Work at write time.
   workId: text('work_id').references(() => work.id, { onDelete: 'restrict' }),
+  // Same expand-then-contract posture (ADR-0018, PRD #58): the schema slice
+  // (#59) adds this nullable, the backfill slice (#60) populates it, and the
+  // resolution slice (#61) drops `work_id`, leaving `edition_id` as the
+  // single link from Source up the hierarchy.
+  editionId: text('edition_id').references(() => edition.id, { onDelete: 'restrict' }),
 });
 
 export const principle = pgTable(

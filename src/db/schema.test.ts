@@ -13,6 +13,7 @@ import { describe, expect, it } from 'vitest';
 import {
   bulkProgress,
   dedupDecision,
+  edition,
   EMBEDDING_DIM,
   figure,
   principle,
@@ -200,6 +201,42 @@ describe('declarative Drizzle schema (ADR-0005)', () => {
       expect(fkTargets(source)).toContainEqual({
         column: 'work_id',
         refTable: 'work',
+        refColumn: 'id',
+      });
+    });
+  });
+
+  describe('edition + source.edition_id back the Editions/Recension provenance layer (ADR-0018)', () => {
+    it('edition has id PK, label, recension, language, and a FK to work', () => {
+      expect(column(edition, 'id').primary).toBe(true);
+      expect(column(edition, 'work_id').notNull).toBe(true);
+      expect(column(edition, 'label').notNull).toBe(true);
+      // `recension` is a text column — a documented controlled vocabulary,
+      // not a table (mirrors `work.tier`). Promotion is deferred until a
+      // recension needs its own metadata.
+      expect(column(edition, 'recension').notNull).toBe(true);
+      // `language` is not-null and defaults to 'en' so existing single-language
+      // ingest paths need no code change.
+      expect(column(edition, 'language').notNull).toBe(true);
+      // Publication provenance is nullable — we don't always know it.
+      expect(column(edition, 'published_date').notNull).toBe(false);
+      expect(column(edition, 'publisher').notNull).toBe(false);
+      expect(column(edition, 'notes').notNull).toBe(false);
+      expect(fkTargets(edition)).toContainEqual({
+        column: 'work_id',
+        refTable: 'work',
+        refColumn: 'id',
+      });
+    });
+
+    it('source.edition_id is nullable during the backfill window and FKs to edition', () => {
+      // Same expand-then-contract posture ADR-0017 used for `work_id`: add
+      // the column nullable, backfill in a separate slice, drop the old
+      // `work_id` column in the resolution slice.
+      expect(column(source, 'edition_id').notNull).toBe(false);
+      expect(fkTargets(source)).toContainEqual({
+        column: 'edition_id',
+        refTable: 'edition',
         refColumn: 'id',
       });
     });

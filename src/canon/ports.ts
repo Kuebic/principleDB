@@ -13,6 +13,7 @@ import type {
   DedupDecision,
   DistilProvenance,
   DistilledItem,
+  Edition,
   Figure,
   LocatedQuote,
   Principle,
@@ -135,6 +136,13 @@ export interface CanonRepository {
   // idempotent by primary key so re-running is safe.
   upsertFigure(figure: Figure): Promise<void>;
   upsertWork(work: Work): Promise<void>;
+  // Edition layer (ADR-0018, PRD #58). `upsertEdition` seeds one Edition per
+  // published recension of a Work; the backfill slice (#60) then reassigns
+  // Sources through `assignSourceToEdition`. `getEdition` is the minimal
+  // readback for the schema slice — later slices resolve Work → Editions →
+  // Sources directly. Both idempotent by primary key so re-running is safe.
+  upsertEdition(edition: Edition): Promise<void>;
+  getEdition(id: string): Promise<Edition | null>;
   // Every Work with its Figure pre-joined — feeds the web picker + the
   // `list_works` MCP tool.
   listWorks(): Promise<WorkWithFigure[]>;
