@@ -619,7 +619,7 @@ export class PostgresCanonRepository implements CanonRepository {
   }
 
   async listSourceRefsForBackfill(): Promise<SourceRefForBackfill[]> {
-    const rows = await this.db
+    return this.db
       .select({
         id: schema.source.id,
         author: schema.source.author,
@@ -627,12 +627,6 @@ export class PostgresCanonRepository implements CanonRepository {
         workId: schema.source.workId,
       })
       .from(schema.source);
-    return rows.map((r) => ({
-      id: r.id,
-      author: r.author,
-      title: r.title,
-      workId: r.workId,
-    }));
   }
 
   async assignSourceToWork(sourceId: string, workId: string): Promise<void> {
