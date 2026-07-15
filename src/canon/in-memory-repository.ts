@@ -137,8 +137,8 @@ export class InMemoryRepository implements CanonRepository {
     limit: number,
     scopedSourceIds?: readonly string[],
   ): Promise<SearchHit[]> {
+    if (scopedSourceIds && scopedSourceIds.length === 0) return [];
     const scope = scopedSourceIds ? new Set(scopedSourceIds) : null;
-    if (scope && scope.size === 0) return [];
     const hits = this.allPrinciplesWithAttachedQuotes()
       .filter(({ sourceId }) => !scope || scope.has(sourceId))
       .map(({ principle }) => ({

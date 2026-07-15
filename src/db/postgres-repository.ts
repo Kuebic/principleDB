@@ -535,7 +535,7 @@ export class PostgresCanonRepository implements CanonRepository {
     if (scopedSourceIds && scopedSourceIds.length === 0) return [];
     const distance = pgCosineDistance(schema.principle.embedding, queryEmbedding);
     const scopeFilter = scopedSourceIds
-      ? inArray(schema.principle.sourceId, scopedSourceIds as string[])
+      ? inArray(schema.principle.sourceId, scopedSourceIds)
       : undefined;
     const rows = await this.db
       .select({
