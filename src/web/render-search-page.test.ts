@@ -27,6 +27,7 @@ const oneHit: SearchPrinciplesResponse = {
         label: 'page 4',
         span: { start: 0, end: 24 },
       },
+      quoteCount: 1,
     },
   ],
 };
@@ -51,6 +52,7 @@ const oneHitWithWork: SearchPrinciplesResponse = {
         label: 'page 4',
         span: { start: 0, end: 24 },
       },
+      quoteCount: 1,
     },
   ],
 };
@@ -155,6 +157,7 @@ describe('renderSearchPage', () => {
             label: 'page 1',
             span: { start: 0, end: 1 },
           },
+          quoteCount: 1,
         },
       ],
     };
@@ -237,6 +240,49 @@ describe('renderSearchPage', () => {
     const html = renderSearchPage({ query: 'grace', response: oneHit });
     expect(html).toContain('Grace and obedience');
     expect(html).not.toContain('Pastor X');
+  });
+
+  it('renders "+ N more sources" control iff quoteCount > 1, above the related expander (#63/#64)', () => {
+    const multi: SearchPrinciplesResponse = {
+      hits: [
+        {
+          principleId: 'p_multi',
+          claim: 'Attested many times.',
+          score: 0.8,
+          source: {
+            id: 's1',
+            title: 'First Source',
+            author: 'x',
+            kind: 'book',
+            work: { title: 'Cheon Seong Gyeong' },
+            figure: { displayName: 'Sun Myung Moon' },
+          },
+          quote: {
+            id: 'q_lead',
+            text: 'Attested many times.',
+            label: 'page 1',
+            span: { start: 0, end: 20 },
+          },
+          quoteCount: 4,
+        },
+      ],
+    };
+    const html = renderSearchPage({ query: 'grace', response: multi });
+    // The button text carries N = quoteCount - 1 (extras beyond the lead).
+    expect(html).toMatch(/[+＋]\s*3\s+more\s+sources/i);
+    // The extras control sits before the related expander in the DOM.
+    const extraIdx = html.search(/[+＋]\s*3\s+more\s+sources/i);
+    const relatedIdx = html.indexOf('related principles');
+    expect(extraIdx).toBeGreaterThan(-1);
+    expect(relatedIdx).toBeGreaterThan(-1);
+    expect(extraIdx).toBeLessThan(relatedIdx);
+    // The control carries the principle id so the client can fetch its extras.
+    expect(html).toContain('data-principle-id="p_multi"');
+  });
+
+  it('renders NO "+ N more sources" control when quoteCount === 1 (#63/#64)', () => {
+    const html = renderSearchPage({ query: 'grace', response: oneHit });
+    expect(html).not.toMatch(/more\s+sources/i);
   });
 
   it('does NOT eagerly render "related principles" list items (only the expander control)', () => {

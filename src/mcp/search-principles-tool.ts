@@ -57,6 +57,11 @@ export interface SearchHitResponse {
     label: string;
     span: Span;
   };
+  // Attestation signal (issue #64, PRD #63): how many Sources voice this
+  // Principle — always >= 1 (the lead Quote itself). MCP clients read it as a
+  // grounding-strength hint at negligible token cost; the web UI uses
+  // `quoteCount - 1` to label the "+ N more sources" reveal control.
+  quoteCount: number;
 }
 
 export interface SearchPrinciplesResponse {
@@ -114,6 +119,7 @@ export async function toSearchHitResponses(
         label: deriveLabel(source.structureMap, quote.span, source.text.length),
         span: quote.span,
       },
+      quoteCount: hit.principle.quotes.length,
     });
   }
   return responses;

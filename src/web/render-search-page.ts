@@ -113,6 +113,17 @@ function renderHit(hit: SearchHitResponse): string {
   const attribution = figureName
     ? `<i>${escapeHtml(workTitle)}</i> &middot; ${escapeHtml(figureName)}`
     : `<i>${escapeHtml(workTitle)}</i>`;
+  // Multi-attestation reveal control (issue #64, PRD #63). Rendered only when
+  // more than one Source voices this Principle. Inert in this ticket — the
+  // click handler + panel wiring lands in T3 (#66). Placed beneath the lead
+  // blockquote/meta and above the (conceptually separate) related expander.
+  const extras = hit.quoteCount > 1
+    ? `<button type="button" class="more-sources"
+      data-expander="quotes"
+      data-principle-id="${escapeAttribute(hit.principleId)}"
+      aria-expanded="false">+ ${hit.quoteCount - 1} more sources</button>
+    <div class="extras" data-extras-for="${escapeAttribute(hit.principleId)}" hidden></div>`
+    : '';
   return `<article class="hit">
     <p class="claim">${escapeHtml(hit.claim)}</p>
     <blockquote>&ldquo;${escapeHtml(hit.quote.text)}&rdquo;</blockquote>
@@ -122,6 +133,7 @@ function renderHit(hit: SearchHitResponse): string {
         ${escapeHtml(hit.quote.label)}</span>
       <a class="open" href="/quote/${encodeURIComponent(hit.quote.id)}">Read in context &rarr;</a>
     </div>
+    ${extras}
     <button type="button" class="expand"
       data-expander="related"
       data-principle-id="${escapeAttribute(hit.principleId)}"
@@ -259,6 +271,15 @@ a:hover { text-decoration: underline; }
 .hit .meta .open { margin-left: auto; }
 .hit .expand { margin-top: 12px; cursor: pointer; background: transparent; border: 0;
   color: var(--accent); font-size: 13px; font-weight: 600; padding: 0; }
+.hit .more-sources { margin-top: 10px; cursor: pointer; background: transparent; border: 0;
+  color: var(--accent); font-size: 13px; font-weight: 600; padding: 0; }
+.extras { margin-top: 10px; display: flex; flex-direction: column; gap: 10px; }
+.extras blockquote { margin: 0; padding: 10px 14px; border-left: 3px solid var(--accent-soft);
+  background: var(--paper-2); border-radius: 0 8px 8px 0; font-family: var(--serif); font-size: 16px; }
+.extras .meta { display: flex; flex-wrap: wrap; gap: 8px 14px; align-items: center;
+  font-size: 13px; color: var(--ink-faint); }
+.extras .meta .src { color: var(--ink-soft); }
+.extras .meta .open { margin-left: auto; }
 .related { margin-top: 12px; padding-top: 12px; border-top: 1px dashed var(--line); }
 .related h4 { margin: 0 0 8px; font-size: 12px; text-transform: uppercase;
   letter-spacing: .06em; color: var(--ink-faint); }

@@ -75,6 +75,9 @@ describe('searchPrinciplesTool', () => {
     expect(hit.source.title).toBe('Grace and obedience');
     expect(hit.source.author).toBe('Pastor X');
     expect(hit.source.kind).toBe('sermon');
+    // #64/PRD #63: every hit carries a quoteCount = number of Quotes on the
+    // Principle. A freshly-distilled single-attestation Principle reads 1.
+    expect(hit.quoteCount).toBe(1);
   });
 
   it('returns a well-shaped empty case ({ hits: [] })', async () => {
@@ -238,6 +241,36 @@ describe('searchPrinciplesTool', () => {
     );
     const ids = new Set(resp.hits.map((h) => h.source.id));
     expect(ids).toEqual(new Set(['s_csg', 's_extra']));
+  });
+
+  it('quoteCount reflects cross-source attestations (dedup-merged Quote counts too, #64)', async () => {
+    // Two Sources voicing the same claim; the second's Quote is dedup-merged
+    // onto the first Principle. The MCP hit response reports the total count.
+    const repository = new InMemoryRepository();
+    const provider = new FakeIngestProvider(
+      () => [{ claim: 'Grace precedes obedience.', quote: 'Grace precedes obedience.' }],
+      undefined,
+      undefined,
+      () => ({ same: true, rationale: 'test — same claim' }),
+    );
+    const src1: Source = {
+      ...sermon,
+      id: 's1',
+      title: 'First sermon',
+      text: 'Grace precedes obedience.',
+    };
+    const src2: Source = {
+      ...sermon,
+      id: 's2',
+      title: 'Second sermon',
+      text: 'Grace precedes obedience.',
+    };
+    await ingestSource(src1, { provider, repository });
+    await ingestSource(src2, { provider, repository });
+
+    const resp = await searchPrinciplesTool({ query: 'grace' }, { provider, repository });
+    expect(resp.hits.length).toBe(1);
+    expect(resp.hits[0]!.quoteCount).toBe(2);
   });
 
   it('empty-but-valid scope (unknown ids) returns the same `{ hits: [] }` shape as a no-match', async () => {
