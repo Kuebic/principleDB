@@ -53,9 +53,30 @@ their own *model* and their own *client*.
   can jump to the exact spot. Typographic noise (curly vs straight quotes, whitespace,
   line-wrap hyphenation) is normalised away only to *locate*; a quote that won't locate is a
   Drift signal for Review. The evidence layer. _Avoid_: snippet, passage, citation.
-- **Source** — An original teaching the corpus is built from (a sermon, transcript,
-  book, article). Openable so a Quote can be seen in its surrounding context. _Avoid_:
-  document, reference, material, file.
+- **Source** — An original teaching *as ingested* — the unit distillation runs over and
+  the text a Quote locates into. Often a whole speech or article; a long book is split
+  into per-chapter Sources, all grouped under one **Work** (Cheon Seong Gyeong is 429
+  Sources). Its `author` may be an ingest-time slug (`SunMyungMoon-CSG`, a DP part name)
+  and is *not* the citation shown to readers — the Work's title and Figure are. Openable
+  so a Quote can be seen in its surrounding context. _Avoid_: document, reference,
+  material, file, chapter (a chapter is one Source, but so is a whole speech).
+- **Work** — A teaching *as published*: a book or a single speech/sermon/article. The
+  unit a reader chooses to search within or exclude (the search-filter checkbox). Made of
+  one or more Sources — a speech is a 1-Source Work, a scriptural book a many-Source Work.
+  Carries the clean human title and the **Figure** it is attributed to; the underlying
+  Sources' raw `author` slugs are an implementation detail beneath it. Each Work is
+  **core** (searched by default — the founding corpus) or **extra** (in the Canon but
+  opt-in per search — later additions like a single speech or a supplementary book); a
+  member's default scope is "all core Works," and extras are pulled in only when named.
+  _Avoid_: book (a speech isn't one), collection, volume, series, publication.
+- **Figure** — The teacher a Work is *attributed to* — whose teaching it is, which is
+  what a reader means by "search only Hak Ja Han." Distinct from an ingest `author`
+  string (Unification Thought's author is Sang Hun Lee, but a reader may still file it
+  under Moon; a future book *about* a person is attributed to that person, not its
+  ghostwriter). A canonical identity, not a spelling — "Hak Ja Han Moon" and "Hakcha
+  Han-Moon" are one Figure. Groups Works so selecting a Figure selects all their Works.
+  _Avoid_: author (bibliographic, free-text), speaker (narrower than "attributed to"),
+  person.
 - **Corpus** — The whole body of Sources, and the Principles distilled from them, for a
   single instance. _Avoid_: library, dataset, knowledge base, vault.
 - **Canon** — The descriptive, shared layer: Sources, Principles, and Quotes — *what was
