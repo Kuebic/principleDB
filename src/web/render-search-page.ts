@@ -113,13 +113,14 @@ function renderHit(hit: SearchHitResponse): string {
   const attribution = figureName
     ? `<i>${escapeHtml(workTitle)}</i> &middot; ${escapeHtml(figureName)}`
     : `<i>${escapeHtml(workTitle)}</i>`;
-  // Multi-attestation reveal (issue #64, PRD #63). Rendered only when more
-  // than one Source voices this Principle; the panel fetch + click handler
-  // land in a follow-up slice, so the button is inert here on purpose.
+  // Multi-attestation reveal (issue #64, PRD #63; wired in #66). `data-total-
+  // extras` snapshots the initial count so the client can decrement the label
+  // as batches load without re-parsing it out of the visible text.
   const extras = hit.quoteCount > 1
     ? `<button type="button" class="more-sources"
       data-expander="quotes"
       data-principle-id="${escapeAttribute(hit.principleId)}"
+      data-total-extras="${hit.quoteCount - 1}"
       aria-expanded="false">+ ${hit.quoteCount - 1} more sources</button>
     <div class="extras" data-extras-for="${escapeAttribute(hit.principleId)}" hidden></div>`
     : '';
@@ -366,6 +367,81 @@ document.addEventListener('toggle', function (event) {
 }, true);
 window.addEventListener('resize', updatePickerFades);
 updatePickerFades();
+// Extras expander (issue #66). Each click pages /api/quotes by the current
+// panel offset, appends the returned Quotes as citation blocks, and stops
+// when the server reports hasMore=false. All Source text lands via
+// createElement + textContent so a Source cannot inject markup.
+document.addEventListener('click', function (event) {
+  var target = event.target;
+  if (!(target instanceof HTMLElement)) return;
+  var trigger = target.closest('[data-expander="quotes"]');
+  if (!trigger) return;
+  var principleId = trigger.getAttribute('data-principle-id');
+  if (!principleId) return;
+  var panel = document.querySelector('[data-extras-for="' + CSS.escape(principleId) + '"]');
+  if (!panel) return;
+  if (panel.dataset.loading === 'true') return;
+  panel.dataset.loading = 'true';
+  panel.hidden = false;
+  trigger.setAttribute('aria-expanded', 'true');
+  var offset = parseInt(panel.dataset.offset || '0', 10);
+  fetch('/api/quotes?principleId=' + encodeURIComponent(principleId) + '&offset=' + offset)
+    .then(function (r) { return r.ok ? r.json() : Promise.reject(new Error('fetch failed')); })
+    .then(function (body) {
+      var quotes = (body && Array.isArray(body.quotes)) ? body.quotes : [];
+      var hasMore = !!(body && body.hasMore);
+      for (var i = 0; i < quotes.length; i++) {
+        panel.appendChild(buildExtraQuoteNode(quotes[i]));
+      }
+      var loaded = offset + quotes.length;
+      panel.dataset.offset = String(loaded);
+      panel.dataset.loading = 'false';
+      var totalExtras = parseInt(trigger.dataset.totalExtras || '0', 10);
+      var remaining = totalExtras - loaded;
+      if (!hasMore || remaining < 1) {
+        trigger.remove();
+      } else {
+        trigger.textContent = '+ ' + remaining + ' more sources';
+      }
+    })
+    .catch(function () {
+      panel.dataset.loading = 'false';
+    });
+});
+function buildExtraQuoteNode(q) {
+  var source = (q && q.source) || {};
+  var wrap = document.createElement('article');
+  wrap.className = 'extra';
+  var bq = document.createElement('blockquote');
+  bq.textContent = '“' + ((q && q.text) || '') + '”';
+  wrap.appendChild(bq);
+  var meta = document.createElement('div');
+  meta.className = 'meta';
+  var src = document.createElement('span');
+  src.className = 'src';
+  var workTitle = (source.work && source.work.title) || source.title || '';
+  var title = document.createElement('i');
+  title.textContent = workTitle;
+  src.appendChild(title);
+  var figureName = source.figure && source.figure.displayName;
+  if (figureName) {
+    src.appendChild(document.createTextNode(' · ' + figureName));
+  }
+  src.appendChild(document.createTextNode(' · '));
+  var kind = document.createElement('span');
+  kind.className = 'kind';
+  kind.textContent = source.kind || '';
+  src.appendChild(kind);
+  src.appendChild(document.createTextNode(' · ' + ((q && q.label) || '')));
+  meta.appendChild(src);
+  var link = document.createElement('a');
+  link.className = 'open';
+  link.href = '/quote/' + encodeURIComponent((q && q.id) || '');
+  link.textContent = 'Read in context →';
+  meta.appendChild(link);
+  wrap.appendChild(meta);
+  return wrap;
+}
 document.addEventListener('click', function (event) {
   var target = event.target;
   if (!(target instanceof HTMLElement)) return;

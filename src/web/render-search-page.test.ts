@@ -278,11 +278,32 @@ describe('renderSearchPage', () => {
     expect(extraIdx).toBeLessThan(relatedIdx);
     // The control carries the principle id so the client can fetch its extras.
     expect(html).toContain('data-principle-id="p_multi"');
+    // The button records the initial extras count so the client can decrement
+    // it as batches load without re-parsing the visible label (#66).
+    expect(html).toContain('data-total-extras="3"');
   });
 
   it('renders NO "+ N more sources" control when quoteCount === 1 (#63/#64)', () => {
     const html = renderSearchPage({ query: 'grace', response: oneHit });
-    expect(html).not.toMatch(/more\s+sources/i);
+    // The rendered button is uniquely identified by its class; both label
+    // fragments and data-attribute selectors appear inside the client script
+    // as literals, so we assert on the button-only marker.
+    expect(html).not.toContain('class="more-sources"');
+  });
+
+  it('client script wires the extras expander to /api/quotes with safe DOM (#66)', () => {
+    const html = renderSearchPage({});
+    // The click handler targets the extras expander control.
+    expect(html).toContain('data-expander="quotes"');
+    // The fetch URL is /api/quotes (mirrors the related expander wiring).
+    expect(html).toContain('/api/quotes?principleId=');
+    // Safe DOM construction is used for extras — createElement + textContent,
+    // never HTML string concatenation of Source text (#66 acceptance criterion).
+    const buildFn = /function buildExtraQuoteNode[\s\S]*?\n\}/.exec(html);
+    expect(buildFn).not.toBeNull();
+    expect(buildFn![0]).toContain('createElement');
+    expect(buildFn![0]).toContain('textContent');
+    expect(buildFn![0]).not.toMatch(/\binnerHTML\b/);
   });
 
   it('does NOT eagerly render "related principles" list items (only the expander control)', () => {
