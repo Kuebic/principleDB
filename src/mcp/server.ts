@@ -11,6 +11,7 @@ import { z } from 'zod';
 import type { CanonRepository, IngestProvider } from '../canon/ports';
 import { getQuoteInContextTool } from './get-quote-in-context-tool';
 import { listReviewQueueTool } from './list-review-queue-tool';
+import { listWorksTool } from './list-works-tool';
 import { relatedPrinciplesTool } from './related-principles-tool';
 import { resolveReviewItemTool } from './resolve-review-item-tool';
 import { searchPrinciplesTool } from './search-principles-tool';
@@ -21,9 +22,10 @@ export interface ServerDeps {
 }
 
 // Which tool surface to expose on the server. The public web/MCP endpoint
-// (ADR-0015) registers `readOnly: true` so `list_review_queue` +
-// `resolve_review_item` — the Owner-only write tools — are never reachable
-// from the anonymous surface. stdio and CI keep the default (all 5 tools).
+// (ADR-0015 + ADR-0017 extension: 3 → 4 public tools with `list_works`)
+// registers `readOnly: true` so `list_review_queue` + `resolve_review_item`
+// — the Owner-only write tools — are never reachable from the anonymous
+// surface. stdio and CI keep the default (all 6 tools).
 export interface ServerOptions {
   readOnly?: boolean;
 }
@@ -167,6 +169,22 @@ export function createPrincipleDbServer(
       },
     );
   }
+
+  server.registerTool(
+    'list_works',
+    {
+      description:
+        'Discover what Works exist in the Canon, grouped by Figure (ADR-0017). Each Work carries a clean title and a `tier` — `core` (searched by default) or `extra` (opt-in). Use this to translate a member request like "only look through Hak Ja Han" into concrete `figures` / `works` params on search_principles. Empty case is { figures: [] }.',
+      inputSchema: {},
+    },
+    async () => {
+      const response = await listWorksTool(deps);
+      return {
+        content: [{ type: 'text', text: JSON.stringify(response) }],
+        structuredContent: response as unknown as Record<string, unknown>,
+      };
+    },
+  );
 
   server.registerTool(
     'related_principles',

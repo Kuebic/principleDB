@@ -8,6 +8,7 @@ import type { Source } from '../canon/types';
 import type { GetQuoteInContextResponse } from './get-quote-in-context-tool';
 import type { ReviewQueueListing } from './list-review-queue-tool';
 import type { RelatedPrinciplesResponse } from './related-principles-tool';
+import type { ListWorksResponse } from './list-works-tool';
 import type { ReviewResolution } from './resolve-review-item-tool';
 import type { SearchPrinciplesResponse } from './search-principles-tool';
 import { createPrincipleDbServer } from './server';
@@ -263,15 +264,56 @@ describe('MCP server wiring (Review queue tools — slice 6)', () => {
   });
 });
 
-describe('MCP server wiring (readOnly: true — public web surface, ADR-0015)', () => {
-  it('registers exactly the 3 read tools; write tools are absent', async () => {
+describe('MCP server wiring (list_works over JSON-RPC — ADR-0017)', () => {
+  it('advertises list_works in tools/list', async () => {
+    const repository = new InMemoryRepository();
+    const provider = new FakeIngestProvider(() => []);
+    const client = await wireClient({ provider, repository });
+    const { tools } = await client.listTools();
+    const tool = tools.find((t) => t.name === 'list_works');
+    expect(tool).toBeDefined();
+    expect(tool!.description).toMatch(/work/i);
+    expect(tool!.inputSchema.type).toBe('object');
+    await client.close();
+  });
+
+  it('tools/call returns Works grouped by Figure with tier', async () => {
+    const repository = new InMemoryRepository();
+    const provider = new FakeIngestProvider(() => []);
+    await repository.upsertFigure({ id: 'fig_smm', slug: 'sun-myung-moon', displayName: 'Sun Myung Moon' });
+    await repository.upsertWork({ id: 'work_csg', title: 'Cheon Seong Gyeong', figureId: 'fig_smm', tier: 'core' });
+
+    const client = await wireClient({ provider, repository });
+    const result = await client.callTool({ name: 'list_works', arguments: {} });
+    expect(result.isError).not.toBe(true);
+    const structured = result.structuredContent as unknown as ListWorksResponse;
+    expect(structured.figures).toHaveLength(1);
+    expect(structured.figures[0]!.displayName).toBe('Sun Myung Moon');
+    expect(structured.figures[0]!.works[0]!.title).toBe('Cheon Seong Gyeong');
+    expect(structured.figures[0]!.works[0]!.tier).toBe('core');
+    await client.close();
+  });
+
+  it('returns the well-shaped empty case ({ figures: [] })', async () => {
+    const repository = new InMemoryRepository();
+    const provider = new FakeIngestProvider(() => []);
+    const client = await wireClient({ provider, repository });
+    const result = await client.callTool({ name: 'list_works', arguments: {} });
+    expect(result.isError).not.toBe(true);
+    expect(result.structuredContent).toEqual({ figures: [] });
+    await client.close();
+  });
+});
+
+describe('MCP server wiring (readOnly: true — public web surface, ADR-0015 + ADR-0017)', () => {
+  it('registers exactly the 4 read tools; write tools are absent', async () => {
     const repository = new InMemoryRepository();
     const provider = new FakeIngestProvider(() => []);
     const client = await wireClient({ provider, repository }, { readOnly: true });
     const { tools } = await client.listTools();
     const names = tools.map((t) => t.name).sort();
     expect(names).toEqual(
-      ['get_quote_in_context', 'related_principles', 'search_principles'].sort(),
+      ['get_quote_in_context', 'list_works', 'related_principles', 'search_principles'].sort(),
     );
     await client.close();
   });

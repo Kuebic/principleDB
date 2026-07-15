@@ -60,7 +60,7 @@ describe('CI smoke test — real HTTP MCP client against /mcp (ADR-0015)', () =>
     });
   });
 
-  it('lists exactly the 3 read tools; write tools are absent', async () => {
+  it('lists exactly the 4 read tools; write tools are absent', async () => {
     const client = new Client({ name: 'smoke', version: '0.0.0' });
     const transport = new StreamableHTTPClientTransport(new URL('/mcp', baseUrl));
     await client.connect(transport);
@@ -68,7 +68,7 @@ describe('CI smoke test — real HTTP MCP client against /mcp (ADR-0015)', () =>
       const { tools } = await client.listTools();
       const names = tools.map((t) => t.name).sort();
       expect(names).toEqual(
-        ['get_quote_in_context', 'related_principles', 'search_principles'].sort(),
+        ['get_quote_in_context', 'list_works', 'related_principles', 'search_principles'].sort(),
       );
       expect(names).not.toContain('list_review_queue');
       expect(names).not.toContain('resolve_review_item');
