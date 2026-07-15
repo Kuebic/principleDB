@@ -248,6 +248,173 @@ describe('GET /api/related — on-demand relatedness for the search page (#47)',
   });
 });
 
+describe('GET /api/quotes — extra Sources per Principle (Slice T2, #65, PRD #63)', () => {
+  // Seed a Principle attested by MANY Sources so paging is meaningful: the
+  // host Source distils the claim; each companion re-states it and dedup
+  // attaches the companion's Quote to the same Principle. Extras = quotes[1..].
+  async function seedMultiQuotePrinciple(extras: number): Promise<{
+    repository: InMemoryRepository;
+    provider: FakeIngestProvider;
+    app: ReturnType<typeof createWebApp>;
+    principleId: string;
+  }> {
+    const provider = new FakeIngestProvider(
+      (input) => [{ claim: 'Grace precedes obedience.', quote: input.text.trim() }],
+      undefined,
+      undefined,
+      () => ({ same: true, rationale: 'test — treat as identical' }),
+    );
+    const repository = new InMemoryRepository();
+    const deps = { provider, repository };
+
+    const host: Source = {
+      id: 'host',
+      title: 'Host sermon',
+      author: 'Pastor Host',
+      kind: 'sermon',
+      date: '2026-05-15',
+      text: 'Grace precedes obedience.',
+      r2Key: null,
+      structureMap: { kind: 'none' },
+    };
+    await ingestSource(host, deps);
+
+    for (let i = 0; i < extras; i++) {
+      const companion: Source = {
+        id: `extra${i}`,
+        title: `Extra sermon ${i}`,
+        author: `Pastor E${i}`,
+        kind: 'sermon',
+        date: '2026-06-01',
+        text: `Grace precedes obedience ${i}.`,
+        r2Key: null,
+        structureMap: { kind: 'none' },
+      };
+      await ingestSource(companion, deps);
+    }
+
+    const app = createWebApp(deps);
+    const search = await app.request('/api/search?q=grace');
+    const searchBody = (await search.json()) as SearchPrinciplesResponse;
+    const principleId = searchBody.hits[0]!.principleId;
+    return { repository, provider, app, principleId };
+  }
+
+  it('offset=0 returns the first 3 extras (skipping the lead) and hasMore when more remain', async () => {
+    const { app, principleId } = await seedMultiQuotePrinciple(5);
+    const res = await app.request(`/api/quotes?principleId=${encodeURIComponent(principleId)}`);
+    expect(res.status).toBe(200);
+    const body = (await res.json()) as {
+      quotes: Array<{ id: string; text: string; label: string; source: { title: string } }>;
+      hasMore: boolean;
+    };
+    expect(body.quotes).toHaveLength(3);
+    expect(body.hasMore).toBe(true);
+    // Extras only — the host Quote (lead) is not in this batch.
+    for (const q of body.quotes) {
+      expect(q.source.title).not.toBe('Host sermon');
+    }
+    // Each quote carries snapped text + a derived label (structure=none → "~% in").
+    for (const q of body.quotes) {
+      expect(q.text.length).toBeGreaterThan(0);
+      expect(q.label).toMatch(/% in$/);
+    }
+  });
+
+  it('paging by offset returns disjoint, ordered batches and the final page reports hasMore=false', async () => {
+    const { app, principleId } = await seedMultiQuotePrinciple(5);
+    const page1 = (await (await app.request(
+      `/api/quotes?principleId=${encodeURIComponent(principleId)}&offset=0`,
+    )).json()) as { quotes: Array<{ id: string }>; hasMore: boolean };
+    const page2 = (await (await app.request(
+      `/api/quotes?principleId=${encodeURIComponent(principleId)}&offset=3`,
+    )).json()) as { quotes: Array<{ id: string }>; hasMore: boolean };
+    expect(page1.quotes).toHaveLength(3);
+    expect(page1.hasMore).toBe(true);
+    expect(page2.quotes).toHaveLength(2);
+    expect(page2.hasMore).toBe(false);
+    const seen = new Set(page1.quotes.map((q) => q.id));
+    for (const q of page2.quotes) expect(seen.has(q.id)).toBe(false);
+  });
+
+  it('each enriched quote carries Work + Figure attribution when the Source is assigned', async () => {
+    const provider = new FakeIngestProvider(
+      (input) => [{ claim: 'Grace precedes obedience.', quote: input.text.trim() }],
+      undefined,
+      undefined,
+      () => ({ same: true, rationale: 'test — treat as identical' }),
+    );
+    const repository = new InMemoryRepository();
+    const deps = { provider, repository };
+    await repository.upsertFigure({ id: 'fig_smm', slug: 'sun-myung-moon', displayName: 'Sun Myung Moon' });
+    await repository.upsertWork({ id: 'work_csg', title: 'Cheon Seong Gyeong', figureId: 'fig_smm', tier: 'core' });
+    await ingestSource(
+      {
+        id: 'host',
+        title: 'Host chapter',
+        author: 'ingest-slug',
+        kind: 'book',
+        date: '2026-01-01',
+        text: 'Grace precedes obedience.',
+        r2Key: null,
+        structureMap: { kind: 'none' },
+        workId: 'work_csg',
+      },
+      deps,
+    );
+    await ingestSource(
+      {
+        id: 'extra0',
+        title: 'Extra chapter',
+        author: 'ingest-slug',
+        kind: 'book',
+        date: '2026-02-01',
+        text: 'Grace precedes obedience too.',
+        r2Key: null,
+        structureMap: { kind: 'none' },
+        workId: 'work_csg',
+      },
+      deps,
+    );
+    const app = createWebApp(deps);
+    const search = await app.request('/api/search?q=grace');
+    const searchBody = (await search.json()) as SearchPrinciplesResponse;
+    const principleId = searchBody.hits[0]!.principleId;
+    const res = await app.request(
+      `/api/quotes?principleId=${encodeURIComponent(principleId)}`,
+    );
+    const body = (await res.json()) as {
+      quotes: Array<{ source: { work: { title: string } | null; figure: { displayName: string } | null } }>;
+    };
+    expect(body.quotes).toHaveLength(1);
+    expect(body.quotes[0]!.source.work).toEqual({ title: 'Cheon Seong Gyeong' });
+    expect(body.quotes[0]!.source.figure).toEqual({ displayName: 'Sun Myung Moon' });
+  });
+
+  it('rejects a missing or blank `principleId` with 400', async () => {
+    const deps = fixtureDeps();
+    const app = createWebApp(deps);
+    expect((await app.request('/api/quotes')).status).toBe(400);
+    expect((await app.request('/api/quotes?principleId=')).status).toBe(400);
+    expect((await app.request('/api/quotes?principleId=%20')).status).toBe(400);
+  });
+
+  it('unknown `principleId` yields an empty result (not an error)', async () => {
+    const deps = fixtureDeps();
+    const app = createWebApp(deps);
+    const res = await app.request('/api/quotes?principleId=nope');
+    expect(res.status).toBe(200);
+    expect(await res.json()).toEqual({ quotes: [], hasMore: false });
+  });
+
+  it('rejects a negative `offset` with 400', async () => {
+    const deps = fixtureDeps();
+    const app = createWebApp(deps);
+    const res = await app.request('/api/quotes?principleId=p&offset=-1');
+    expect(res.status).toBe(400);
+  });
+});
+
 describe('GET /quote/:quoteId — the Reader page (Slice W3, #48)', () => {
   it('renders the highlighted quote plus the full source when the id resolves', async () => {
     const deps = fixtureDeps();

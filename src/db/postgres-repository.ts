@@ -17,6 +17,7 @@ import type {
   CanonRepository,
   ListReviewCandidatesOptions,
   QuoteWithPrinciple,
+  QuoteWithSource,
   ReplacePrinciplesOptions,
   SearchHit,
   SourceRefForBackfill,
@@ -397,6 +398,72 @@ export class PostgresCanonRepository implements CanonRepository {
       grouped[hydratable[i]!.qidx]!.push(hydrated[i]!);
     }
     return grouped;
+  }
+
+  async getQuotesForPrinciple(
+    principleId: string,
+    offset: number,
+    limit: number,
+  ): Promise<QuoteWithSource[]> {
+    // Stable order: the host Source's Quote first (`principle.source_id ==
+    // quote.source_id`), then attached extras from cross-source dedup merges
+    // (issue #65, PRD #63). Within each group we order by quote.id so a
+    // Principle with many extras pages deterministically. Read the host
+    // source_id in the same query via a correlated subquery so the join is
+    // one round-trip.
+    const hostFilter = sql`(SELECT source_id FROM ${schema.principle} WHERE id = ${principleId})`;
+    const rows = await this.db
+      .select({
+        quoteId: schema.quote.id,
+        quotePrincipleId: schema.quote.principleId,
+        quoteSourceId: schema.quote.sourceId,
+        spanStart: schema.quote.spanStart,
+        spanEnd: schema.quote.spanEnd,
+        located: schema.quote.located,
+        matchTier: schema.quote.matchTier,
+        distilPromptVersion: schema.quote.distilPromptVersion,
+        sourceId: schema.source.id,
+        sourceTitle: schema.source.title,
+        sourceAuthor: schema.source.author,
+        sourceKind: schema.source.kind,
+        sourceDate: schema.source.date,
+        sourceText: schema.source.text,
+        sourceR2Key: schema.source.r2Key,
+        sourceStructureMap: schema.source.structureMap,
+        sourceWorkId: schema.source.workId,
+      })
+      .from(schema.quote)
+      .innerJoin(schema.source, eq(schema.quote.sourceId, schema.source.id))
+      .where(eq(schema.quote.principleId, principleId))
+      .orderBy(
+        sql`(${schema.quote.sourceId} = ${hostFilter}) DESC`,
+        asc(schema.quote.id),
+      )
+      .limit(limit)
+      .offset(offset);
+
+    return rows.map((r) => ({
+      quote: {
+        id: r.quoteId,
+        principleId: r.quotePrincipleId,
+        sourceId: r.quoteSourceId,
+        span: { start: r.spanStart, end: r.spanEnd },
+        located: true,
+        matchTier: r.matchTier as LocatedQuote['matchTier'],
+        distilPromptVersion: r.distilPromptVersion,
+      },
+      source: {
+        id: r.sourceId,
+        title: r.sourceTitle,
+        author: r.sourceAuthor,
+        kind: r.sourceKind as SourceKind,
+        date: r.sourceDate,
+        text: r.sourceText,
+        r2Key: r.sourceR2Key,
+        structureMap: r.sourceStructureMap as StructureMap,
+        workId: r.sourceWorkId,
+      },
+    }));
   }
 
   async findRelatedPrinciples(

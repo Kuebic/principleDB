@@ -78,6 +78,15 @@ export interface QuoteWithPrinciple {
   principleClaim: string;
 }
 
+// Row shape returned by `getQuotesForPrinciple` (issue #65, PRD #63). Each row
+// is one Quote with its Source pre-resolved — the endpoint (`GET /api/quotes`)
+// then enriches with the snapped text, derived label, and Work/Figure
+// attribution the lead card already renders.
+export interface QuoteWithSource {
+  quote: LocatedQuote;
+  source: Source;
+}
+
 // Extra ingest output written alongside the new Principles. Kept on the same
 // repository call so a transactional implementation can apply all three
 // atomically (`replacePrinciplesForSource` already wipes the slot — attached
@@ -180,6 +189,17 @@ export interface CanonRepository {
     threshold: number,
     limit: number,
   ): Promise<SearchHit[][]>;
+  // Multi-quote paging (issue #65, PRD #63). Returns a Principle's Quotes in
+  // stable insertion order — the host Source's own Quote (`quotes[0]`) first,
+  // then the attached cross-source Quotes from dedup merges (`quotes[1..]`) —
+  // sliced by `offset`/`limit`, each row carrying its resolved Source so the
+  // caller can render a full citation without a per-row round-trip. `offset`
+  // indexes into the flat quote list (0 = lead). Unknown `principleId` ⇒ `[]`.
+  getQuotesForPrinciple(
+    principleId: string,
+    offset: number,
+    limit: number,
+  ): Promise<QuoteWithSource[]>;
   // Live relatedness (issue #7, PRD user story 32, ADR-0006). Top-`limit`
   // Principles whose cosine to `principleId`'s embedding is at or above
   // `threshold`, EXCLUDING the seed itself. Computed on read — nothing

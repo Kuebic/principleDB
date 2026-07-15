@@ -476,6 +476,86 @@ describe.skipIf(!DATABASE_URL)('PostgresCanonRepository (integration)', () => {
     });
   });
 
+  describe('getQuotesForPrinciple — multi-quote paging (issue #65, PRD #63)', () => {
+    // A host + two extras that all voice the same claim; dedup attaches each
+    // extra's Quote to the host Principle. The host's Quote is the lead;
+    // extras come after in stable order.
+    async function seedMulti(): Promise<string> {
+      const host: Source = {
+        id: 'host',
+        title: 'Host sermon',
+        author: 'Pastor Host',
+        kind: 'sermon',
+        date: '2026-05-15',
+        text: 'Grace precedes obedience.',
+        r2Key: null,
+        structureMap: { kind: 'none' },
+      };
+      const hostProvider = new FakeIngestProvider(
+        () => [{ claim: 'Grace precedes obedience.', quote: 'Grace precedes obedience.' }],
+        provenanceA,
+        EMBEDDING_DIM,
+      );
+      await ingestSource(host, { provider: hostProvider, repository: repo });
+      for (const [i, srcId] of ['extraA', 'extraB'].entries()) {
+        const extra: Source = {
+          id: srcId,
+          title: `Extra sermon ${i}`,
+          author: `Pastor E${i}`,
+          kind: 'sermon',
+          date: '2026-06-01',
+          text: `Grace precedes obedience ${i}.`,
+          r2Key: null,
+          structureMap: { kind: 'none' },
+        };
+        const provider = new FakeIngestProvider(
+          () => [{ claim: 'Grace precedes obedience.', quote: extra.text }],
+          provenanceA,
+          EMBEDDING_DIM,
+          () => ({ same: true, rationale: 'identical' }),
+        );
+        await ingestSource(extra, { provider, repository: repo });
+      }
+      const searchProvider = new FakeIngestProvider(() => [], provenanceA, EMBEDDING_DIM);
+      const hits = await searchPrinciples('grace', {
+        provider: searchProvider,
+        repository: repo,
+        limit: 1,
+      });
+      return hits[0]!.principle.id;
+    }
+
+    it('returns the lead first, then attached extras — stable order', async () => {
+      const principleId = await seedMulti();
+      const rows = await repo.getQuotesForPrinciple(principleId, 0, 10);
+      expect(rows).toHaveLength(3);
+      expect(rows[0]!.source.id).toBe('host');
+      expect(new Set(rows.slice(1).map((r) => r.source.id))).toEqual(
+        new Set(['extraA', 'extraB']),
+      );
+      // Every row carries a resolved Source (title + text present).
+      for (const r of rows) {
+        expect(r.source.title.length).toBeGreaterThan(0);
+        expect(r.source.text.length).toBeGreaterThan(0);
+      }
+    });
+
+    it('honours offset + limit: disjoint pages, correct slice', async () => {
+      const principleId = await seedMulti();
+      const page1 = await repo.getQuotesForPrinciple(principleId, 0, 2);
+      const page2 = await repo.getQuotesForPrinciple(principleId, 2, 2);
+      expect(page1).toHaveLength(2);
+      expect(page2).toHaveLength(1);
+      const seen = new Set(page1.map((r) => r.quote.id));
+      for (const r of page2) expect(seen.has(r.quote.id)).toBe(false);
+    });
+
+    it('returns [] for an unknown principle id', async () => {
+      const rows = await repo.getQuotesForPrinciple('does-not-exist', 0, 10);
+      expect(rows).toEqual([]);
+    });
+  });
+
   describe('live relatedness (issue #7)', () => {
     const graceSermon: Source = {
       id: 'rel-serm1',

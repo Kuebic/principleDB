@@ -26,6 +26,7 @@
 
 import { WebStandardStreamableHTTPServerTransport } from '@modelcontextprotocol/sdk/server/webStandardStreamableHttp.js';
 import { Hono } from 'hono';
+import { deriveLabel } from '../canon/derive-label';
 import { getQuoteReader } from '../canon/quote-in-context';
 import { createPrincipleDbServer, type ServerDeps } from '../mcp/server';
 import { relatedPrinciplesTool } from '../mcp/related-principles-tool';
@@ -151,6 +152,52 @@ export function createWebApp(deps: ServerDeps, options: WebAppOptions = {}): Hon
     return c.json(response);
   });
 
+  // GET /api/quotes — web-only paging of a Principle's additional Sources
+  // (issue #65, PRD #63). Consumed by the "+ N more sources" client reveal;
+  // NOT wired into the MCP surface (MCP gets only the `quoteCount` integer).
+  // `offset` counts extras beyond the lead (offset 0 → the first 3 extras =
+  // `quotes[1..3]`); consecutive offsets return disjoint, ordered batches.
+  // `hasMore` is detected by fetching one row past `limit` and dropping it.
+  app.get('/api/quotes', async (c) => {
+    const principleId = c.req.query('principleId');
+    if (!principleId || principleId.trim() === '') {
+      return c.json({ error: 'missing required query parameter `principleId`' }, 400);
+    }
+    const offsetRaw = c.req.query('offset');
+    const offset = parseOffset(offsetRaw);
+    if (offset instanceof Error) {
+      return c.json({ error: offset.message }, 400);
+    }
+    const listings = await deps.repository.listWorks();
+    const worksByWorkId = new Map(listings.map((l) => [l.work.id, l] as const));
+    // Extras start at index 1 (the lead lives at 0) — translate the extras-
+    // relative offset to the flat quote index the repo indexes by.
+    const flatOffset = 1 + offset;
+    const rows = await deps.repository.getQuotesForPrinciple(
+      principleId,
+      flatOffset,
+      EXTRAS_PAGE_SIZE + 1,
+    );
+    const hasMore = rows.length > EXTRAS_PAGE_SIZE;
+    const page = hasMore ? rows.slice(0, EXTRAS_PAGE_SIZE) : rows;
+    const quotes = page.map(({ quote, source }) => {
+      const wf = source.workId ? worksByWorkId.get(source.workId) : undefined;
+      return {
+        id: quote.id,
+        text: source.text.slice(quote.span.start, quote.span.end),
+        label: deriveLabel(source.structureMap, quote.span, source.text.length),
+        source: {
+          id: source.id,
+          title: source.title,
+          kind: source.kind,
+          work: wf ? { title: wf.work.title } : null,
+          figure: wf ? { displayName: wf.figure.displayName } : null,
+        },
+      };
+    });
+    return c.json({ quotes, hasMore });
+  });
+
   // POST /mcp — stateless Streamable HTTP. Per ADR-0015 the read-only tool
   // surface is exactly the 3 read tools; write tools stay off the anonymous
   // surface. A fresh server + fresh transport per request (sessionIdGenerator:
@@ -198,6 +245,20 @@ function parseLimit(raw: string | undefined): number | undefined | Error {
   const n = Number(raw);
   if (!Number.isInteger(n) || n < 1 || n > 50) {
     return new Error('`limit` must be an integer between 1 and 50');
+  }
+  return n;
+}
+
+// The "extras beyond the lead" batch size the /api/quotes endpoint returns
+// per page (issue #65, PRD #63). Small so a heavily-attested Principle stays
+// scannable; the client pages by advancing offset in this stride.
+const EXTRAS_PAGE_SIZE = 3;
+
+function parseOffset(raw: string | undefined): number | Error {
+  if (raw === undefined || raw === '') return 0;
+  const n = Number(raw);
+  if (!Number.isInteger(n) || n < 0) {
+    return new Error('`offset` must be a non-negative integer');
   }
   return n;
 }

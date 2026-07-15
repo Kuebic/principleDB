@@ -24,6 +24,7 @@ import type {
   CanonRepository,
   ListReviewCandidatesOptions,
   QuoteWithPrinciple,
+  QuoteWithSource,
   ReplacePrinciplesOptions,
   SearchHit,
   SourceRefForBackfill,
@@ -191,6 +192,25 @@ export class InMemoryRepository implements CanonRepository {
     const existing = this.sources.get(sourceId);
     if (!existing) return;
     this.sources.set(sourceId, { ...existing, workId });
+  }
+
+  async getQuotesForPrinciple(
+    principleId: string,
+    offset: number,
+    limit: number,
+  ): Promise<QuoteWithSource[]> {
+    const home = this.allPrinciplesWithAttachedQuotes().find(
+      ({ principle }) => principle.id === principleId,
+    );
+    if (!home) return [];
+    const slice = home.principle.quotes.slice(offset, offset + limit);
+    const out: QuoteWithSource[] = [];
+    for (const quote of slice) {
+      const source = this.sources.get(quote.sourceId);
+      if (!source) continue;
+      out.push({ quote, source });
+    }
+    return out;
   }
 
   async findSimilarPrinciplesExcludingSource(
