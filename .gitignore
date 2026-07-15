@@ -17,6 +17,10 @@ build/
 *.log
 .DS_Store
 
+# Python bytecode (marker helper scripts)
+__pycache__/
+*.pyc
+
 # Throwaway prototype caches (see prototype/)
 prototype/.cache.json
 prototype/.cache-ingest.json
