@@ -61,14 +61,17 @@ export interface WorkWithFigure {
   figure: Figure;
 }
 
-// Lightweight Source ref for the backfill (issue #54). `text` +
+// Lightweight Source ref for the backfill (issues #54, #60). `text` +
 // `structure_map` are deliberately omitted so 615 rows (or more) fit
-// comfortably in memory during the one-time assignment pass.
+// comfortably in memory during the one-time assignment pass. Both `workId`
+// (ADR-0017 slice) and `editionId` (ADR-0018 slice) ride on this ref so each
+// backfill can detect its own "already assigned" case for idempotence.
 export interface SourceRefForBackfill {
   id: string;
   author: string;
   title: string;
   workId: string | null;
+  editionId: string | null;
 }
 
 // Minimal join shape getQuoteInContext needs: the located Quote plus the claim of
@@ -161,6 +164,11 @@ export interface CanonRepository {
   // step — a full `upsertSource` would rewrite the (potentially large) text
   // column for no reason.
   assignSourceToWork(sourceId: string, workId: string): Promise<void>;
+  // Narrow UPDATE (issue #60, PRD #58): sets `source.edition_id` without
+  // rewriting the text column, same reason as `assignSourceToWork`. Backs
+  // the Editions backfill (`scripts/backfill-editions.ts`) and future ingest
+  // paths that assign an Edition at write time.
+  assignSourceToEdition(sourceId: string, editionId: string): Promise<void>;
   // `scopedSourceIds`, when provided, restricts the search to Principles
   // whose home Source is in the set — applied as a SQL pre-filter *before*
   // top-K so tight scopes still return their best matches (ADR-0017). An

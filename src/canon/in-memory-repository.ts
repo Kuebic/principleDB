@@ -196,6 +196,7 @@ export class InMemoryRepository implements CanonRepository {
       author: s.author,
       title: s.title,
       workId: s.workId ?? null,
+      editionId: s.editionId ?? null,
     }));
   }
 
@@ -203,6 +204,12 @@ export class InMemoryRepository implements CanonRepository {
     const existing = this.sources.get(sourceId);
     if (!existing) return;
     this.sources.set(sourceId, { ...existing, workId });
+  }
+
+  async assignSourceToEdition(sourceId: string, editionId: string): Promise<void> {
+    const existing = this.sources.get(sourceId);
+    if (!existing) return;
+    this.sources.set(sourceId, { ...existing, editionId });
   }
 
   async getQuotesForPrinciple(

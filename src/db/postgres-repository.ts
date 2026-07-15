@@ -745,6 +745,7 @@ export class PostgresCanonRepository implements CanonRepository {
         author: schema.source.author,
         title: schema.source.title,
         workId: schema.source.workId,
+        editionId: schema.source.editionId,
       })
       .from(schema.source);
   }
@@ -753,6 +754,13 @@ export class PostgresCanonRepository implements CanonRepository {
     await this.db
       .update(schema.source)
       .set({ workId })
+      .where(eq(schema.source.id, sourceId));
+  }
+
+  async assignSourceToEdition(sourceId: string, editionId: string): Promise<void> {
+    await this.db
+      .update(schema.source)
+      .set({ editionId })
       .where(eq(schema.source.id, sourceId));
   }
 
