@@ -143,7 +143,12 @@ function renderPicker(works: readonly WorkWithFigure[], scope: Scope): string {
 
   const figureBlocks = groups
     .map(({ figure, works: figureWorks }) => {
-      const items = figureWorks
+      // Core Works first so `extra`s settle at the foot of the column — the
+      // reader scrolls down past the always-relevant Works to reach them.
+      const ordered = [...figureWorks].sort(
+        (a, b) => (a.tier === 'extra' ? 1 : 0) - (b.tier === 'extra' ? 1 : 0),
+      );
+      const items = ordered
         .map((w) => {
           const checked = checkedIds.has(w.id) ? ' checked' : '';
           const tierBadge = w.tier === 'extra'
@@ -262,11 +267,20 @@ a:hover { text-decoration: underline; }
 .picker > summary::-webkit-details-marker { display: none; }
 .picker > summary::before { content: "\\25B8"; display: inline-block; margin-right: 8px; color: var(--ink-faint); transition: transform 120ms; }
 .picker[open] > summary::before { transform: rotate(90deg); }
-.picker-body { padding: 4px 14px 12px; display: flex; flex-wrap: wrap; gap: 14px; }
-.fig-group { flex: 1 1 220px; min-width: 200px; }
+/* One column per Figure, laid out in a horizontally-scrolling row so adding
+   Figures grows the picker sideways, not down. Each column caps its Works
+   list and scrolls internally, so a Figure with many Works (its extras at
+   the foot) never stretches the whole shelf taller. */
+.picker-body { padding: 4px 14px 12px; display: flex; flex-wrap: nowrap; gap: 0;
+  overflow-x: auto; scrollbar-width: thin; }
+.fig-group { flex: 0 0 190px; min-width: 190px; display: flex; flex-direction: column;
+  padding: 0 14px; border-right: 1px solid var(--paper-2); }
+.fig-group:first-child { padding-left: 0; }
+.fig-group:last-child { border-right: 0; padding-right: 0; }
 .fig-head { border-bottom: 1px solid var(--paper-2); padding: 4px 0; margin-bottom: 4px; }
 .fig-name { font-weight: 600; color: var(--ink); }
-.works { list-style: none; margin: 0; padding: 0; }
+.works { list-style: none; margin: 0; padding: 0; max-height: 168px; overflow-y: auto;
+  scrollbar-width: thin; }
 .works li { padding: 3px 0; }
 .pick { display: inline-flex; align-items: center; gap: 8px; cursor: pointer; color: var(--ink-soft); }
 .work-title { line-height: 1.3; }
