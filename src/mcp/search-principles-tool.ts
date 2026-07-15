@@ -24,6 +24,7 @@ import type { CanonRepository, IngestProvider, SearchHit } from '../canon/ports'
 import { searchPrinciples } from '../canon/search';
 import type { Scope } from '../canon/scope';
 import type { SourceKind, Span } from '../canon/types';
+import { buildWorkFigureResolver } from '../canon/work-figure-resolver';
 
 export interface SearchPrinciplesRequest {
   query: string;
@@ -84,30 +85,23 @@ export async function searchPrinciplesTool(
 // Enriches each SearchHit with its first Quote's snapped text, derived label,
 // and Source citation fields (title/author/kind + Work/Figure). Hits whose
 // first Quote or Source can't be resolved are dropped — same shape as
-// search_principles, so related_principles reuses it verbatim. The Work +
-// Edition listings are fetched once per call and indexed so we don't hit the
-// repository per hit — post-#61, resolution runs Source → Edition → Work +
-// Figure (the second-drifting-path-to-identity risk ADR-0017 removed cannot
-// reappear).
+// search_principles, so related_principles reuses it verbatim. Post-#61
+// resolution runs Source → Edition → Work + Figure via a resolver that loads
+// the two small tables once per call (the second-drifting-path-to-identity
+// risk ADR-0017 removed cannot reappear).
 export async function toSearchHitResponses(
   hits: SearchHit[],
   repository: CanonRepository,
 ): Promise<SearchHitResponse[]> {
   if (hits.length === 0) return [];
-  const [listings, editions] = await Promise.all([
-    repository.listWorks(),
-    repository.listEditions(),
-  ]);
-  const worksByWorkId = new Map(listings.map((l) => [l.work.id, l] as const));
-  const editionsById = new Map(editions.map((e) => [e.id, e] as const));
+  const resolver = await buildWorkFigureResolver(repository);
   const responses: SearchHitResponse[] = [];
   for (const hit of hits) {
     const quote = hit.principle.quotes[0];
     if (!quote) continue;
     const source = await repository.getSource(quote.sourceId);
     if (!source) continue;
-    const edition = source.editionId ? editionsById.get(source.editionId) : undefined;
-    const wf = edition ? worksByWorkId.get(edition.workId) : undefined;
+    const wf = resolver.resolve(source);
     responses.push({
       principleId: hit.principle.id,
       claim: hit.principle.claim,

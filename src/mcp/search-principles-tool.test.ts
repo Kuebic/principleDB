@@ -17,24 +17,6 @@ const sermon: Source = {
   editionId: 'ed_seed',
 };
 
-// Seed the founding Figure/Work/Edition an ingest lands under so the
-// citation-side Source → Edition → Work resolution has something to hit.
-// Tests that need a scoped Canon call `seedScopedCanon` instead.
-async function seedFoundingEdition(repository: InMemoryRepository): Promise<void> {
-  await repository.upsertFigure({ id: 'fig_seed', slug: 'seed', displayName: 'Seed' });
-  await repository.upsertWork({ id: 'work_seed', title: 'Seed', figureId: 'fig_seed', tier: 'core' });
-  await repository.upsertEdition({
-    id: 'ed_seed',
-    workId: 'work_seed',
-    label: 'Seed',
-    recension: 'ffwpu-post-2012',
-    language: 'en',
-    publishedDate: null,
-    publisher: null,
-    notes: null,
-  });
-}
-
 // A miniature Canon that mirrors the ADR-0017 core-vs-extra split so scope
 // semantics can be exercised without a real corpus. Three Works: two core
 // (each with its own Figure), one extra (under the same Figure as the second

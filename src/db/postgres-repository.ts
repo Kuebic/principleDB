@@ -693,31 +693,12 @@ export class PostgresCanonRepository implements CanonRepository {
       .where(eq(schema.edition.id, id))
       .limit(1);
     const row = rows[0];
-    if (!row) return null;
-    return {
-      id: row.id,
-      workId: row.workId,
-      label: row.label,
-      recension: row.recension,
-      language: row.language,
-      publishedDate: row.publishedDate,
-      publisher: row.publisher,
-      notes: row.notes,
-    };
+    return row ? toEdition(row) : null;
   }
 
   async listEditions(): Promise<Edition[]> {
     const rows = await this.db.select().from(schema.edition);
-    return rows.map((row) => ({
-      id: row.id,
-      workId: row.workId,
-      label: row.label,
-      recension: row.recension,
-      language: row.language,
-      publishedDate: row.publishedDate,
-      publisher: row.publisher,
-      notes: row.notes,
-    }));
+    return rows.map(toEdition);
   }
 
   async listWorks(): Promise<WorkWithFigure[]> {
@@ -842,5 +823,27 @@ function toReviewCandidate(row: {
     quoteText: row.quoteText,
     matchTier: row.matchTier as ReviewCandidate['matchTier'],
     dedupState: row.dedupState as ReviewCandidate['dedupState'],
+  };
+}
+
+function toEdition(row: {
+  id: string;
+  workId: string;
+  label: string;
+  recension: string;
+  language: string;
+  publishedDate: string | null;
+  publisher: string | null;
+  notes: string | null;
+}): Edition {
+  return {
+    id: row.id,
+    workId: row.workId,
+    label: row.label,
+    recension: row.recension,
+    language: row.language,
+    publishedDate: row.publishedDate,
+    publisher: row.publisher,
+    notes: row.notes,
   };
 }
