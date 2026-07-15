@@ -55,14 +55,32 @@ their own *model* and their own *client*.
   Drift signal for Review. The evidence layer. _Avoid_: snippet, passage, citation.
 - **Source** — An original teaching *as ingested* — the unit distillation runs over and
   the text a Quote locates into. Often a whole speech or article; a long book is split
-  into per-chapter Sources, all grouped under one **Work** (Cheon Seong Gyeong is 429
-  Sources). Its `author` may be an ingest-time slug (`SunMyungMoon-CSG`, a DP part name)
-  and is *not* the citation shown to readers — the Work's title and Figure are. Openable
-  so a Quote can be seen in its surrounding context. _Avoid_: document, reference,
-  material, file, chapter (a chapter is one Source, but so is a whole speech).
+  into per-chapter Sources, all belonging to one **Edition** of a **Work** (Cheon Seong
+  Gyeong is 429 Sources). Its `author` may be an ingest-time slug (`SunMyungMoon-CSG`, a
+  DP part name) and is *not* the citation shown to readers — the Work's title, Figure, and
+  Edition are. Openable so a Quote can be seen in its surrounding context. _Avoid_:
+  document, reference, material, file, chapter (a chapter is one Source, but so is a whole
+  speech).
+- **Edition** — A specific published **recension** of one Work (Cheon Seong Gyeong
+  "2013 Revised" vs a future "2010 Original"; a Korean vs an English Divine Principle).
+  Sits *between* Work and Source: a Work has one or more Editions, each made of Sources.
+  Carries a `label`, a **Recension** tag, a `language`, and publication provenance. Editions
+  are a **citation and provenance** concern, not a claim concern — Principles merge *across*
+  Editions (the claim is edition-independent, in canonical wording), so the same teaching in
+  two Editions is one Principle whose Quotes reveal which Editions witness it. A teaching that
+  appears in only one Edition (added, removed, or altered by a recension) shows up as a
+  single-Edition Principle — the warping signal. _Avoid_: version, printing, revision (that's
+  the Recension), translation (that's the `language`).
+- **Recension** — The editorial regime that produced an Edition — `ffwpu-post-2012`,
+  `pre-ascension-original`, `external-discourse`, and so on. The **orthogonal** provenance
+  axis: it cuts across Works and Figures, so "show every pre-ascension Edition across the whole
+  corpus" is one query. The integrity signal that keeps the Canon from silently presenting one
+  contested recension as neutral scripture. A small controlled vocabulary (a tag on Edition),
+  not a per-Work concept. _Avoid_: edition (that's the artifact), source, version.
 - **Work** — A teaching *as published*: a book or a single speech/sermon/article. The
   unit a reader chooses to search within or exclude (the search-filter checkbox). Made of
-  one or more Sources — a speech is a 1-Source Work, a scriptural book a many-Source Work.
+  one or more **Editions**, each made of one or more Sources — a speech is a 1-Source Work,
+  a scriptural book a many-Source Work; a re-translated or revised book gains a second Edition.
   Carries the clean human title and the **Figure** it is attributed to; the underlying
   Sources' raw `author` slugs are an implementation detail beneath it. Each Work is
   **core** (searched by default — the founding corpus) or **extra** (in the Canon but
