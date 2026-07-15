@@ -20,6 +20,7 @@ const oneHit: SearchPrinciplesResponse = {
         kind: 'sermon',
         work: null,
         figure: null,
+        edition: null,
       },
       quote: {
         id: 'serm1#opus#q0',
@@ -45,6 +46,7 @@ const oneHitWithWork: SearchPrinciplesResponse = {
         kind: 'book',
         work: { title: 'Cheon Seong Gyeong' },
         figure: { displayName: 'Sun Myung Moon' },
+        edition: { label: '2013 Revised' },
       },
       quote: {
         id: 'csg#opus#q0',
@@ -150,6 +152,7 @@ describe('renderSearchPage', () => {
             kind: 'sermon',
             work: null,
             figure: null,
+            edition: null,
           },
           quote: {
             id: 'q<script>',
@@ -233,6 +236,18 @@ describe('renderSearchPage', () => {
     expect(html).not.toContain('SunMyungMoon-CSG');
   });
 
+  it('names the Edition label alongside the Work title so a contested recension is visible (#62)', () => {
+    const html = renderSearchPage({ query: 'grace', response: oneHitWithWork });
+    expect(html).toContain('2013 Revised');
+    // The Edition label sits with the Work title in the same citation block,
+    // BEFORE the Figure name.
+    const editionIdx = html.indexOf('2013 Revised');
+    const figureIdx = html.indexOf('Sun Myung Moon');
+    expect(editionIdx).toBeGreaterThan(-1);
+    expect(figureIdx).toBeGreaterThan(-1);
+    expect(editionIdx).toBeLessThan(figureIdx);
+  });
+
   it('falls back to the Source title when Work/Figure are unset (backfill window) — no raw slug leak', () => {
     // oneHit uses author "Pastor X" and no Work/Figure. The citation should
     // still avoid surfacing that raw author string once Work/Figure become the
@@ -256,6 +271,7 @@ describe('renderSearchPage', () => {
             kind: 'book',
             work: { title: 'Cheon Seong Gyeong' },
             figure: { displayName: 'Sun Myung Moon' },
+            edition: null,
           },
           quote: {
             id: 'q_lead',

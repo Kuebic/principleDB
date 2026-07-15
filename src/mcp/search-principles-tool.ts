@@ -51,6 +51,12 @@ export interface SearchHitResponse {
     // and never surface `author`, which is the raw ingest slug.
     work: { title: string } | null;
     figure: { displayName: string } | null;
+    // Edition label (ADR-0018, issue #62). Names the published recension the
+    // Quote came from (e.g. "2013 Revised") so a reader never mistakes a
+    // contested Edition for neutral scripture. Nullable for the same
+    // backfill-window reason as work/figure — a Source without an assigned
+    // Edition renders without the label rather than being dropped.
+    edition: { label: string } | null;
   };
   quote: {
     id: string;
@@ -113,6 +119,7 @@ export async function toSearchHitResponses(
         kind: source.kind,
         work: wf ? { title: wf.work.title } : null,
         figure: wf ? { displayName: wf.figure.displayName } : null,
+        edition: wf ? { label: wf.edition.label } : null,
       },
       quote: {
         id: quote.id,

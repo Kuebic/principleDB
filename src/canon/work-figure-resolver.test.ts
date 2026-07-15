@@ -9,11 +9,11 @@ import { InMemoryRepository } from './in-memory-repository';
 import type { Edition, Source } from './types';
 import { buildWorkFigureResolver } from './work-figure-resolver';
 
-function mkEdition(id: string, workId: string): Edition {
+function mkEdition(id: string, workId: string, label = id): Edition {
   return {
     id,
     workId,
-    label: id,
+    label,
     recension: 'ffwpu-post-2012',
     language: 'en',
     publishedDate: null,
@@ -26,7 +26,7 @@ async function seed() {
   const repo = new InMemoryRepository();
   await repo.upsertFigure({ id: 'fig_smm', slug: 'sun-myung-moon', displayName: 'Sun Myung Moon' });
   await repo.upsertWork({ id: 'work_csg', title: 'Cheon Seong Gyeong', figureId: 'fig_smm', tier: 'core' });
-  await repo.upsertEdition(mkEdition('ed_csg', 'work_csg'));
+  await repo.upsertEdition(mkEdition('ed_csg', 'work_csg', '2013 Revised'));
   return repo;
 }
 
@@ -40,6 +40,13 @@ describe('buildWorkFigureResolver', () => {
     const wf = resolver.resolve(src('ed_csg'));
     expect(wf?.work.title).toBe('Cheon Seong Gyeong');
     expect(wf?.figure.displayName).toBe('Sun Myung Moon');
+  });
+
+  it('carries the resolved Edition so citations can name the recension (#62)', async () => {
+    const resolver = await buildWorkFigureResolver(await seed());
+    const wf = resolver.resolve(src('ed_csg'));
+    expect(wf?.edition.label).toBe('2013 Revised');
+    expect(wf?.edition.id).toBe('ed_csg');
   });
 
   it('returns null when the Source has no editionId', async () => {

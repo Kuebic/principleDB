@@ -107,12 +107,19 @@ function renderHit(hit: SearchHitResponse): string {
   // Citation prefers the joined Work + Figure (ADR-0017) so the ingest-time
   // author slug (e.g. `SunMyungMoon-CSG`, DP part-slugs) never surfaces. The
   // Source title is the fallback for the backfill window (a Source not yet
-  // assigned a Work); the raw `author` is intentionally never rendered.
+  // assigned a Work); the raw `author` is intentionally never rendered. The
+  // Edition label (ADR-0018 / issue #62) rides alongside the Work title —
+  // "Cheon Seong Gyeong — 2013 Revised" — so a reader never confuses a
+  // contested recension for neutral scripture.
   const workTitle = hit.source.work?.title ?? hit.source.title;
+  const editionLabel = hit.source.edition?.label ?? '';
+  const workWithEdition = editionLabel
+    ? `<i>${escapeHtml(workTitle)}</i> &mdash; ${escapeHtml(editionLabel)}`
+    : `<i>${escapeHtml(workTitle)}</i>`;
   const figureName = hit.source.figure?.displayName ?? '';
   const attribution = figureName
-    ? `<i>${escapeHtml(workTitle)}</i> &middot; ${escapeHtml(figureName)}`
-    : `<i>${escapeHtml(workTitle)}</i>`;
+    ? `${workWithEdition} &middot; ${escapeHtml(figureName)}`
+    : workWithEdition;
   // Multi-attestation reveal (issue #64, PRD #63; wired in #66). `data-total-
   // extras` snapshots the initial count so the client can decrement the label
   // as batches load without re-parsing it out of the visible text.
@@ -423,6 +430,10 @@ function buildExtraQuoteNode(q) {
   var title = document.createElement('i');
   title.textContent = workTitle;
   src.appendChild(title);
+  var editionLabel = source.edition && source.edition.label;
+  if (editionLabel) {
+    src.appendChild(document.createTextNode(' — ' + editionLabel));
+  }
   var figureName = source.figure && source.figure.displayName;
   if (figureName) {
     src.appendChild(document.createTextNode(' · ' + figureName));

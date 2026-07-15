@@ -354,7 +354,7 @@ describe('GET /api/quotes — extra Sources per Principle (Slice T2, #65, PRD #6
     for (const q of page2.quotes) expect(seen.has(q.id)).toBe(false);
   });
 
-  it('each enriched quote carries Work + Figure attribution when the Source is assigned', async () => {
+  it('each enriched quote carries Work + Figure + Edition attribution when the Source is assigned', async () => {
     const provider = new FakeIngestProvider(
       (input) => [{ claim: 'Grace precedes obedience.', quote: input.text.trim() }],
       undefined,
@@ -365,7 +365,7 @@ describe('GET /api/quotes — extra Sources per Principle (Slice T2, #65, PRD #6
     const deps = { provider, repository };
     await repository.upsertFigure({ id: 'fig_smm', slug: 'sun-myung-moon', displayName: 'Sun Myung Moon' });
     await repository.upsertWork({ id: 'work_csg', title: 'Cheon Seong Gyeong', figureId: 'fig_smm', tier: 'core' });
-    await repository.upsertEdition(mkEdition('ed_csg', 'work_csg'));
+    await repository.upsertEdition({ ...mkEdition('ed_csg', 'work_csg'), label: '2013 Revised' });
     await ingestSource(
       {
         id: 'host',
@@ -402,11 +402,20 @@ describe('GET /api/quotes — extra Sources per Principle (Slice T2, #65, PRD #6
       `/api/quotes?principleId=${encodeURIComponent(principleId)}`,
     );
     const body = (await res.json()) as {
-      quotes: Array<{ source: { work: { title: string } | null; figure: { displayName: string } | null } }>;
+      quotes: Array<{
+        source: {
+          work: { title: string } | null;
+          figure: { displayName: string } | null;
+          edition: { label: string } | null;
+        };
+      }>;
     };
     expect(body.quotes).toHaveLength(1);
     expect(body.quotes[0]!.source.work).toEqual({ title: 'Cheon Seong Gyeong' });
     expect(body.quotes[0]!.source.figure).toEqual({ displayName: 'Sun Myung Moon' });
+    // #62: revealed extras carry the Edition label too — the "N more sources"
+    // reveal must not drop the recension when the lead card has it.
+    expect(body.quotes[0]!.source.edition).toEqual({ label: '2013 Revised' });
   });
 
   it('rejects a missing or blank `principleId` with 400', async () => {

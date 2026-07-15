@@ -192,6 +192,11 @@ export function createWebApp(deps: ServerDeps, options: WebAppOptions = {}): Hon
           kind: source.kind,
           work: wf ? { title: wf.work.title } : null,
           figure: wf ? { displayName: wf.figure.displayName } : null,
+          // Edition label (ADR-0018 / issue #62). Mirrors the lead-card
+          // enrichment in `toSearchHitResponses` so extras carry the same
+          // provenance as the lead — the reader doesn't lose the recension
+          // when the "+ N more sources" reveal opens.
+          edition: wf ? { label: wf.edition.label } : null,
         },
       };
     });

@@ -39,6 +39,12 @@ export interface QuoteInContextHit {
     title: string;
     author: string;
     kind: SourceKind;
+    // Edition label (ADR-0018, issue #62): the recension the Quote came
+    // from (e.g. "2013 Revised") so an AI client's citation names the exact
+    // published artifact. Nullable during the backfill window (Source
+    // without an assigned Edition) — the response still returns rather than
+    // dropping to `found: false`.
+    edition: { label: string } | null;
   };
   principle: {
     id: string;
@@ -74,6 +80,10 @@ export async function getQuoteInContext(
   const source = await deps.repository.getSource(record.quote.sourceId);
   if (!source) return { found: false };
 
+  const edition = source.editionId
+    ? await deps.repository.getEdition(source.editionId)
+    : null;
+
   const { span } = record.quote;
   const beforeStart = Math.max(0, span.start - window);
   const afterEnd = Math.min(source.text.length, span.end + window);
@@ -85,6 +95,7 @@ export async function getQuoteInContext(
       title: source.title,
       author: source.author,
       kind: source.kind,
+      edition: edition ? { label: edition.label } : null,
     },
     principle: {
       id: record.quote.principleId,

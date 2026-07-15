@@ -2,7 +2,7 @@ import { describe, expect, it } from 'vitest';
 import { FakeIngestProvider } from '../canon/fake-provider';
 import { ingestSource } from '../canon/ingest';
 import { InMemoryRepository } from '../canon/in-memory-repository';
-import type { Source } from '../canon/types';
+import type { Edition, Source } from '../canon/types';
 import {
   getQuoteInContextTool,
   type GetQuoteInContextResponse,
@@ -44,5 +44,46 @@ describe('getQuoteInContextTool', () => {
     const repository = new InMemoryRepository();
     const resp = await getQuoteInContextTool({ quoteId: 'nope' }, { repository });
     expect(resp).toEqual({ found: false });
+  });
+
+  it('names the Edition label in provenance so the recension is visible (#62)', async () => {
+    const repository = new InMemoryRepository();
+    const edition: Edition = {
+      id: 'ed_seed',
+      workId: 'work_seed',
+      label: '2013 Revised',
+      recension: 'ffwpu-post-2012',
+      language: 'en',
+      publishedDate: null,
+      publisher: null,
+      notes: null,
+    };
+    await repository.upsertEdition(edition);
+    const provider = new FakeIngestProvider(() => [
+      { claim: 'Grace precedes obedience.', quote: 'Grace precedes obedience.' },
+    ]);
+    await ingestSource(sermon, { provider, repository });
+    const hits = await repository.searchByEmbedding((await provider.embed(['x']))[0]!, 1);
+    const quoteId = hits[0]!.principle.quotes[0]!.id;
+    const resp = await getQuoteInContextTool({ quoteId }, { repository });
+    expect(resp.found).toBe(true);
+    if (!resp.found) return;
+    expect(resp.source.edition).toEqual({ label: '2013 Revised' });
+  });
+
+  it('edition is null when the Source has no Edition (backfill window) — response still returns', async () => {
+    const repository = new InMemoryRepository();
+    const provider = new FakeIngestProvider(() => [
+      { claim: 'Grace precedes obedience.', quote: 'Grace precedes obedience.' },
+    ]);
+    // Ingest a Source with no editionId — mirrors the pre-backfill state.
+    const sermonWithoutEdition: Source = { ...sermon, editionId: null };
+    await ingestSource(sermonWithoutEdition, { provider, repository });
+    const hits = await repository.searchByEmbedding((await provider.embed(['x']))[0]!, 1);
+    const quoteId = hits[0]!.principle.quotes[0]!.id;
+    const resp = await getQuoteInContextTool({ quoteId }, { repository });
+    expect(resp.found).toBe(true);
+    if (!resp.found) return;
+    expect(resp.source.edition).toBeNull();
   });
 });

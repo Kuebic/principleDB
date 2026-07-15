@@ -38,9 +38,9 @@ async function seedScopedCanon(): Promise<{
   await repository.upsertWork({ id: 'work_extra', title: 'Later Speeches', figureId: 'fig_hjh', tier: 'extra' });
 
   // One Edition per founding Work — matches the real Canon shape post-#61.
-  await repository.upsertEdition(mkEdition('ed_csg', 'work_csg'));
-  await repository.upsertEdition(mkEdition('ed_tm', 'work_tm'));
-  await repository.upsertEdition(mkEdition('ed_extra', 'work_extra'));
+  await repository.upsertEdition(mkEdition('ed_csg', 'work_csg', '2013 Revised'));
+  await repository.upsertEdition(mkEdition('ed_tm', 'work_tm', '2017'));
+  await repository.upsertEdition(mkEdition('ed_extra', 'work_extra', 'Later 1980'));
 
   const mkSource = (id: string, editionId: string, workLabel: string): Source => ({
     id,
@@ -64,11 +64,11 @@ async function seedScopedCanon(): Promise<{
   return { provider, repository };
 }
 
-function mkEdition(id: string, workId: string): Edition {
+function mkEdition(id: string, workId: string, label?: string): Edition {
   return {
     id,
     workId,
-    label: id,
+    label: label ?? id,
     recension: 'ffwpu-post-2012',
     language: 'en',
     publishedDate: null,
@@ -204,6 +204,13 @@ describe('searchPrinciplesTool', () => {
     const csg = resp.hits.find((h) => h.source.id === 's_csg')!;
     expect(csg.source.work?.title).toBe('Cheon Seong Gyeong');
     expect(csg.source.figure?.displayName).toBe('Sun Myung Moon');
+  });
+
+  it('citation carries the Edition label so the recension is named (#62)', async () => {
+    const deps = await seedScopedCanon();
+    const resp = await searchPrinciplesTool({ query: 'grace shines' }, deps);
+    const csg = resp.hits.find((h) => h.source.id === 's_csg')!;
+    expect(csg.source.edition).toEqual({ label: '2013 Revised' });
   });
 
   it('scoping by a Work id restricts hits to Sources in that Work', async () => {
