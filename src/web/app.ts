@@ -67,17 +67,24 @@ export function createWebApp(deps: ServerDeps, options: WebAppOptions = {}): Hon
   if (options.requestLog) app.use('*', createRequestLogger(options.requestLog));
   if (options.rateLimit) app.use('*', createRateLimiter(options.rateLimit));
 
-  // GET / — the public Canon search page (Slice W2, #40/#47). Server-rendered
-  // over `searchPrinciplesTool` so results share the exact shape /api/search
-  // returns. LLM-free by construction (embedding + pgvector); related hits
-  // are DEFERRED and fetched on click via /api/related.
+  // GET / — the public Canon search page (Slice W2, #40/#47) with the
+  // Work/Figure source-filtering scope in URL params (Slice W57, ADR-0017).
+  // Repeated `?work=` / `?figure=` params define the scope; absence = all
+  // `core` Works (dynamic — a future core Work auto-joins). State lives
+  // purely in the URL so a scoped search is shareable/bookmarkable.
   app.get('/', async (c) => {
     const query = c.req.query('q');
+    const works = c.req.queries('work') ?? [];
+    const figures = c.req.queries('figure') ?? [];
+    const scope = works.length > 0 || figures.length > 0 ? { works, figures } : undefined;
+    // The picker needs the full Works listing regardless of query — a member
+    // landing on the page (no query) should still see what is searchable.
+    const listings = await deps.repository.listWorks();
     if (!query || query.trim() === '') {
-      return c.html(renderSearchPage({}));
+      return c.html(renderSearchPage({ works: listings, scope }));
     }
-    const response = await searchPrinciplesTool({ query }, deps);
-    return c.html(renderSearchPage({ query, response }));
+    const response = await searchPrinciplesTool({ query, ...(scope ?? {}) }, deps);
+    return c.html(renderSearchPage({ query, response, works: listings, scope }));
   });
 
   // GET /quote/:quoteId — the Reader page (Slice W3, #48, Variant D). The full

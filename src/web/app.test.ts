@@ -114,7 +114,6 @@ describe('GET / — public Canon search page (Slice W2, #47)', () => {
     const body = await res.text();
     expect(body).toContain('Grace precedes obedience.');
     expect(body).toContain('Grace and obedience');
-    expect(body).toContain('Pastor X');
   });
 
   it('renders an empty-state message when the query returns no hits', async () => {
@@ -124,6 +123,100 @@ describe('GET / — public Canon search page (Slice W2, #47)', () => {
     expect(res.status).toBe(200);
     const body = await res.text();
     expect(body.toLowerCase()).toContain('no results');
+  });
+});
+
+describe('GET / — URL-param scope for Work/Figure filtering (Slice W57, ADR-0017)', () => {
+  // A miniature scoped Canon: two core Works under different Figures + one
+  // opt-in extra Work — mirrors the ADR-0017 split so repeated ?work=/?figure=
+  // params can be exercised end-to-end through the route.
+  async function seedScopedApp(): Promise<{
+    deps: ReturnType<typeof fixtureDeps>;
+    app: ReturnType<typeof createWebApp>;
+  }> {
+    const provider = new FakeIngestProvider((input) => [
+      { claim: `Teaching from ${input.title}.`, quote: input.text.trim() },
+    ]);
+    const repository = new InMemoryRepository();
+    const deps = { provider, repository };
+
+    await repository.upsertFigure({ id: 'fig_smm', slug: 'sun-myung-moon', displayName: 'Sun Myung Moon' });
+    await repository.upsertFigure({ id: 'fig_hjh', slug: 'hak-ja-han', displayName: 'Hak Ja Han' });
+    await repository.upsertWork({ id: 'work_csg', title: 'Cheon Seong Gyeong', figureId: 'fig_smm', tier: 'core' });
+    await repository.upsertWork({ id: 'work_tm', title: 'True Mother Anthology', figureId: 'fig_hjh', tier: 'core' });
+    await repository.upsertWork({ id: 'work_extra', title: 'Later Speeches', figureId: 'fig_hjh', tier: 'extra' });
+
+    const mkSource = (id: string, workId: string, label: string): Source => ({
+      id,
+      title: `${label} chapter`,
+      author: 'ingest-slug-should-not-surface',
+      kind: 'book',
+      date: '2026-01-01',
+      text: `Grace shines through ${label}.`,
+      r2Key: null,
+      structureMap: { kind: 'none' },
+      workId,
+    });
+    await ingestSource(mkSource('s_csg', 'work_csg', 'CSG'), deps);
+    await ingestSource(mkSource('s_tm', 'work_tm', 'TM Anthology'), deps);
+    await ingestSource(mkSource('s_extra', 'work_extra', 'Later Speeches'), deps);
+
+    const app = createWebApp(deps);
+    return { deps, app };
+  }
+
+  it('no work= / figure= params → all core Works (extras excluded) — the dynamic default', async () => {
+    const { app } = await seedScopedApp();
+    const res = await app.request('/?q=grace+shines');
+    expect(res.status).toBe(200);
+    const body = await res.text();
+    expect(body).toContain('CSG chapter');
+    expect(body).toContain('TM Anthology chapter');
+    expect(body).not.toContain('Later Speeches chapter');
+  });
+
+  it('repeated work= params scope the search to just those Works', async () => {
+    const { app } = await seedScopedApp();
+    const res = await app.request('/?q=grace+shines&work=work_csg');
+    expect(res.status).toBe(200);
+    const body = await res.text();
+    expect(body).toContain('CSG chapter');
+    expect(body).not.toContain('TM Anthology chapter');
+    expect(body).not.toContain('Later Speeches chapter');
+  });
+
+  it('figure= expands to every Work under that Figure (including extras of that Figure)', async () => {
+    const { app } = await seedScopedApp();
+    const res = await app.request('/?q=grace+shines&figure=fig_hjh');
+    expect(res.status).toBe(200);
+    const body = await res.text();
+    expect(body).not.toContain('CSG chapter');
+    expect(body).toContain('TM Anthology chapter');
+    expect(body).toContain('Later Speeches chapter');
+  });
+
+  it('naming an extra Work explicitly opts it in', async () => {
+    const { app } = await seedScopedApp();
+    const res = await app.request('/?q=grace+shines&work=work_extra');
+    expect(res.status).toBe(200);
+    const body = await res.text();
+    expect(body).toContain('Later Speeches chapter');
+    expect(body).not.toContain('CSG chapter');
+    expect(body).not.toContain('TM Anthology chapter');
+  });
+
+  it('renders the picker on the landing page (no query) so members see what is searchable', async () => {
+    const { app } = await seedScopedApp();
+    const res = await app.request('/');
+    expect(res.status).toBe(200);
+    const body = await res.text();
+    // The Figure display names appear in the picker.
+    expect(body).toContain('Sun Myung Moon');
+    expect(body).toContain('Hak Ja Han');
+    // Work titles appear in the picker.
+    expect(body).toContain('Cheon Seong Gyeong');
+    expect(body).toContain('True Mother Anthology');
+    expect(body).toContain('Later Speeches');
   });
 });
 

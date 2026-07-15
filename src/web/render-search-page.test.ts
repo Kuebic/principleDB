@@ -3,6 +3,7 @@
 // quote cards (claim + Source's own words + citation).
 
 import { describe, expect, it } from 'vitest';
+import type { WorkWithFigure } from '../canon/ports';
 import type { SearchPrinciplesResponse } from '../mcp/search-principles-tool';
 import { renderSearchPage } from './render-search-page';
 
@@ -29,6 +30,49 @@ const oneHit: SearchPrinciplesResponse = {
     },
   ],
 };
+
+const oneHitWithWork: SearchPrinciplesResponse = {
+  hits: [
+    {
+      principleId: 'csg#opus#p0',
+      claim: 'Grace precedes obedience.',
+      score: 0.91,
+      source: {
+        id: 's_csg',
+        title: 'CSG chapter 1',
+        author: 'SunMyungMoon-CSG',
+        kind: 'book',
+        work: { title: 'Cheon Seong Gyeong' },
+        figure: { displayName: 'Sun Myung Moon' },
+      },
+      quote: {
+        id: 'csg#opus#q0',
+        text: 'Grace precedes obedience.',
+        label: 'page 4',
+        span: { start: 0, end: 24 },
+      },
+    },
+  ],
+};
+
+const listings: WorkWithFigure[] = [
+  {
+    work: { id: 'work_csg', title: 'Cheon Seong Gyeong', figureId: 'fig_smm', tier: 'core' },
+    figure: { id: 'fig_smm', slug: 'sun-myung-moon', displayName: 'Sun Myung Moon' },
+  },
+  {
+    work: { id: 'work_dp', title: 'Divine Principle', figureId: 'fig_smm', tier: 'core' },
+    figure: { id: 'fig_smm', slug: 'sun-myung-moon', displayName: 'Sun Myung Moon' },
+  },
+  {
+    work: { id: 'work_tm', title: 'True Mother Anthology', figureId: 'fig_hjh', tier: 'core' },
+    figure: { id: 'fig_hjh', slug: 'hak-ja-han', displayName: 'Hak Ja Han' },
+  },
+  {
+    work: { id: 'work_later', title: 'Later Speeches', figureId: 'fig_hjh', tier: 'extra' },
+    figure: { id: 'fig_hjh', slug: 'hak-ja-han', displayName: 'Hak Ja Han' },
+  },
+];
 
 describe('renderSearchPage', () => {
   it('sets meta robots=noindex on every page (public site, unlisted)', () => {
@@ -57,7 +101,6 @@ describe('renderSearchPage', () => {
   it('renders one card per hit — claim, quote text, citation', () => {
     const html = renderSearchPage({ query: 'grace', response: oneHit });
     expect(html).toContain('Grace precedes obedience.');
-    expect(html).toContain('Pastor X');
     expect(html).toContain('Grace and obedience');
     expect(html).toContain('page 4');
   });
@@ -122,6 +165,78 @@ describe('renderSearchPage', () => {
     expect(html).toContain('&lt;script&gt;');
     // href must be a safe URL — quoteId containing `<` should be percent-encoded.
     expect(html).not.toMatch(/href="\/quote\/q<script>/);
+  });
+
+  it('renders a Figure-grouped picker collapsed by default (a <details> without `open`)', () => {
+    const html = renderSearchPage({ works: listings });
+    const details = /<details\b([^>]*)>/i.exec(html);
+    expect(details).not.toBeNull();
+    // Default closed — the `open` attribute must be absent from the opener.
+    expect(details![1]!.toLowerCase()).not.toMatch(/\bopen\b/);
+    // Grouped by Figure — each Figure's display name appears.
+    expect(html).toContain('Sun Myung Moon');
+    expect(html).toContain('Hak Ja Han');
+    // Per-Figure "select all" controls, one per Figure.
+    expect(html.match(/data-select-all-figure=/g)?.length).toBe(2);
+  });
+
+  it('with no explicit scope: core Works are pre-checked, extra Works listed unchecked', () => {
+    const html = renderSearchPage({ works: listings });
+    // Each core Work has a checked checkbox with name="work" and its id as value.
+    for (const id of ['work_csg', 'work_dp', 'work_tm']) {
+      expect(html).toMatch(
+        new RegExp(`<input[^>]*name=["']work["'][^>]*value=["']${id}["'][^>]*checked`, 'i'),
+      );
+    }
+    // The extra Work is present but not checked.
+    expect(html).toMatch(
+      /<input[^>]*name=["']work["'][^>]*value=["']work_later["']/i,
+    );
+    const laterInput = /<input[^>]*value=["']work_later["'][^>]*>/i.exec(html)?.[0] ?? '';
+    expect(laterInput.toLowerCase()).not.toMatch(/\bchecked\b/);
+  });
+
+  it('with an explicit scope: only Works in the scope are pre-checked', () => {
+    const html = renderSearchPage({
+      works: listings,
+      scope: { works: ['work_csg', 'work_later'] },
+    });
+    const inputFor = (id: string): string =>
+      new RegExp(`<input[^>]*value=["']${id}["'][^>]*>`, 'i').exec(html)?.[0] ?? '';
+    expect(inputFor('work_csg').toLowerCase()).toMatch(/\bchecked\b/);
+    expect(inputFor('work_later').toLowerCase()).toMatch(/\bchecked\b/);
+    expect(inputFor('work_dp').toLowerCase()).not.toMatch(/\bchecked\b/);
+    expect(inputFor('work_tm').toLowerCase()).not.toMatch(/\bchecked\b/);
+  });
+
+  it('with a Figure scope: every Work under that Figure is pre-checked (Figure expands)', () => {
+    const html = renderSearchPage({
+      works: listings,
+      scope: { figures: ['fig_hjh'] },
+    });
+    const inputFor = (id: string): string =>
+      new RegExp(`<input[^>]*value=["']${id}["'][^>]*>`, 'i').exec(html)?.[0] ?? '';
+    expect(inputFor('work_tm').toLowerCase()).toMatch(/\bchecked\b/);
+    expect(inputFor('work_later').toLowerCase()).toMatch(/\bchecked\b/);
+    expect(inputFor('work_csg').toLowerCase()).not.toMatch(/\bchecked\b/);
+    expect(inputFor('work_dp').toLowerCase()).not.toMatch(/\bchecked\b/);
+  });
+
+  it('renders citations as Work title + Figure — the raw author slug does not appear', () => {
+    const html = renderSearchPage({ query: 'grace', response: oneHitWithWork });
+    expect(html).toContain('Cheon Seong Gyeong');
+    expect(html).toContain('Sun Myung Moon');
+    // The ingest-time author slug must NOT surface in the rendered citation.
+    expect(html).not.toContain('SunMyungMoon-CSG');
+  });
+
+  it('falls back to the Source title when Work/Figure are unset (backfill window) — no raw slug leak', () => {
+    // oneHit uses author "Pastor X" and no Work/Figure. The citation should
+    // still avoid surfacing that raw author string once Work/Figure become the
+    // canonical citation fields.
+    const html = renderSearchPage({ query: 'grace', response: oneHit });
+    expect(html).toContain('Grace and obedience');
+    expect(html).not.toContain('Pastor X');
   });
 
   it('does NOT eagerly render "related principles" list items (only the expander control)', () => {

@@ -1,25 +1,46 @@
-// Public Canon search page — Slice W2 (#47, #40, ADR-0015).
+// Public Canon search page — Slice W2 (#47, #40, ADR-0015) + Slice W57
+// (source-filtering picker + URL-param scope, ADR-0017).
 // Server-rendered HTML over `SearchPrinciplesResponse`. LLM-free: hits are
 // grounded quote cards (Principle claim + Source's own words + citation).
 // The "related principles" expander is DEFERRED — the browser fetches
 // /api/related?principleId=... only when the user clicks (map Out-of-scope
 // pre-eager rendering, #47).
 //
-// This module is a pure renderer: takes the query + response and returns HTML.
-// The route handler (app.ts) calls the core search directly (ADR-0015).
+// The Figure-grouped picker (issue #57) lives inside the existing GET form so
+// submitting it re-runs the same route with `?work=`/`?figure=` params — no
+// cookie, no client state, so a scoped search is bookmarkable/shareable. The
+// picker is collapsed by default (a plain <details> element) so the page
+// stays simple when a member just wants to search everything.
+//
+// This module is a pure renderer: takes the query + response + Works listing
+// + scope and returns HTML. The route handler (app.ts) parses the URL,
+// resolves the scope, and calls the core search directly (ADR-0015).
 
+import type { WorkWithFigure } from '../canon/ports';
+import type { Scope } from '../canon/scope';
 import type { SearchHitResponse, SearchPrinciplesResponse } from '../mcp/search-principles-tool';
 
 export interface RenderSearchPageOptions {
   query?: string;
   response?: SearchPrinciplesResponse;
+  // Every Work + its Figure, so the picker can render the full list of
+  // searchable Works grouped by Figure. When omitted, the picker is not
+  // rendered (keeps tests that predate the picker green).
+  works?: readonly WorkWithFigure[];
+  // The current scope decoded from the URL. Absent (or empty) ⇒ picker
+  // pre-checks `core` Works; explicit `works` / `figures` pre-checks exactly
+  // that set (Figures expand to their Works).
+  scope?: Scope;
 }
 
 export function renderSearchPage(options: RenderSearchPageOptions = {}): string {
   const query = options.query?.trim() ?? '';
   const response = options.response;
+  const works = options.works ?? [];
+  const scope = options.scope ?? {};
 
   const results = renderResults(query, response);
+  const picker = works.length > 0 ? renderPicker(works, scope) : '';
 
   return `<!doctype html>
 <html lang="en">
@@ -40,6 +61,7 @@ export function renderSearchPage(options: RenderSearchPageOptions = {}): string 
         placeholder="Type a thought — e.g. why does love need someone to receive it?"
         autocomplete="off" autofocus />
       <button type="submit">Search</button>
+      ${picker}
     </form>
     <a class="connect-link" href="/connect">connect your AI &rarr;</a>
   </header>
@@ -78,12 +100,20 @@ function renderResults(query: string, response: SearchPrinciplesResponse | undef
 
 function renderHit(hit: SearchHitResponse): string {
   const kindWord = escapeHtml(hit.source.kind);
+  // Citation prefers the joined Work + Figure (ADR-0017) so the ingest-time
+  // author slug (e.g. `SunMyungMoon-CSG`, DP part-slugs) never surfaces. The
+  // Source title is the fallback for the backfill window (a Source not yet
+  // assigned a Work); the raw `author` is intentionally never rendered.
+  const workTitle = hit.source.work?.title ?? hit.source.title;
+  const figureName = hit.source.figure?.displayName ?? '';
+  const attribution = figureName
+    ? `<i>${escapeHtml(workTitle)}</i> &middot; ${escapeHtml(figureName)}`
+    : `<i>${escapeHtml(workTitle)}</i>`;
   return `<article class="hit">
     <p class="claim">${escapeHtml(hit.claim)}</p>
     <blockquote>&ldquo;${escapeHtml(hit.quote.text)}&rdquo;</blockquote>
     <div class="meta">
-      <span class="src">${escapeHtml(hit.source.author)} &middot;
-        <i>${escapeHtml(hit.source.title)}</i> &middot;
+      <span class="src">${attribution} &middot;
         <span class="kind">${kindWord}</span> &middot;
         ${escapeHtml(hit.quote.label)}</span>
       <a class="open" href="/quote/${encodeURIComponent(hit.quote.id)}">Read in context &rarr;</a>
@@ -94,6 +124,96 @@ function renderHit(hit: SearchHitResponse): string {
       aria-expanded="false">&#9662; related principles</button>
     <div class="related" data-related-for="${escapeAttribute(hit.principleId)}" hidden></div>
   </article>`;
+}
+
+// Figure-grouped, collapsible picker (issue #57). Rendered inside the GET
+// form so submitting bakes the selection into the URL as repeated `work=` /
+// `figure=` params — no cookie, shareable/bookmarkable.
+//
+// Which boxes start checked (ADR-0017):
+//   • no explicit scope ⇒ all `core` Works
+//   • `scope.works` present ⇒ exactly those Work ids
+//   • `scope.figures` present ⇒ expand to every Work under the named Figure
+// Both are unioned. Extras stay unchecked unless explicitly named.
+function renderPicker(works: readonly WorkWithFigure[], scope: Scope): string {
+  const checkedIds = pickCheckedWorkIds(works, scope);
+  const groups = groupByFigure(works);
+
+  const figureBlocks = groups
+    .map(({ figure, works: figureWorks }) => {
+      const items = figureWorks
+        .map((w) => {
+          const checked = checkedIds.has(w.id) ? ' checked' : '';
+          const tierBadge = w.tier === 'extra'
+            ? ` <span class="tier tier-extra">extra</span>`
+            : '';
+          return `<li><label class="pick">
+            <input type="checkbox" name="work" value="${escapeAttribute(w.id)}"${checked} />
+            <span class="work-title">${escapeHtml(w.title)}</span>${tierBadge}
+          </label></li>`;
+        })
+        .join('');
+      return `<section class="fig-group">
+        <header class="fig-head">
+          <label class="pick">
+            <input type="checkbox" data-select-all-figure="${escapeAttribute(figure.id)}" />
+            <span class="fig-name">${escapeHtml(figure.displayName)}</span>
+          </label>
+        </header>
+        <ul class="works">${items}</ul>
+      </section>`;
+    })
+    .join('');
+
+  return `<details class="picker">
+    <summary>Choose what to search</summary>
+    <div class="picker-body">
+      ${figureBlocks}
+    </div>
+  </details>`;
+}
+
+function groupByFigure(
+  works: readonly WorkWithFigure[],
+): Array<{ figure: WorkWithFigure['figure']; works: WorkWithFigure['work'][] }> {
+  const groups = new Map<
+    string,
+    { figure: WorkWithFigure['figure']; works: WorkWithFigure['work'][] }
+  >();
+  for (const { work, figure } of works) {
+    let g = groups.get(figure.id);
+    if (!g) {
+      g = { figure, works: [] };
+      groups.set(figure.id, g);
+    }
+    g.works.push(work);
+  }
+  return [...groups.values()];
+}
+
+function pickCheckedWorkIds(
+  works: readonly WorkWithFigure[],
+  scope: Scope,
+): Set<string> {
+  const scopedWorks = scope.works ?? [];
+  const scopedFigures = scope.figures ?? [];
+  if (scopedWorks.length === 0 && scopedFigures.length === 0) {
+    return new Set(works.filter((l) => l.work.tier === 'core').map((l) => l.work.id));
+  }
+  const chosen = new Set<string>();
+  const validWorkIds = new Set(works.map((l) => l.work.id));
+  for (const id of scopedWorks) {
+    if (validWorkIds.has(id)) chosen.add(id);
+  }
+  if (scopedFigures.length > 0) {
+    const wanted = new Set(scopedFigures);
+    for (const l of works) {
+      if (wanted.has(l.figure.id) || wanted.has(l.figure.slug)) {
+        chosen.add(l.work.id);
+      }
+    }
+  }
+  return chosen;
 }
 
 function escapeHtml(input: string): string {
@@ -156,6 +276,24 @@ a:hover { text-decoration: underline; }
 .related .r:last-child { border-bottom: 0; }
 .related .r a { color: var(--accent); }
 .empty-state { color: var(--ink-soft); font-family: var(--serif); font-size: 17px; padding: 12px 2px; }
+.picker { flex-basis: 100%; margin-top: 10px; background: var(--card); border: 1px solid var(--line);
+  border-radius: 10px; font-size: 14px; }
+.picker > summary { list-style: none; cursor: pointer; padding: 8px 14px; color: var(--ink-soft);
+  font-weight: 600; user-select: none; }
+.picker > summary::-webkit-details-marker { display: none; }
+.picker > summary::before { content: "\\25B8"; display: inline-block; margin-right: 8px; color: var(--ink-faint); transition: transform 120ms; }
+.picker[open] > summary::before { transform: rotate(90deg); }
+.picker-body { padding: 4px 14px 12px; display: flex; flex-wrap: wrap; gap: 14px; }
+.fig-group { flex: 1 1 220px; min-width: 200px; }
+.fig-head { border-bottom: 1px solid var(--paper-2); padding: 4px 0; margin-bottom: 4px; }
+.fig-name { font-weight: 600; color: var(--ink); }
+.works { list-style: none; margin: 0; padding: 0; }
+.works li { padding: 3px 0; }
+.pick { display: inline-flex; align-items: center; gap: 8px; cursor: pointer; color: var(--ink-soft); }
+.work-title { line-height: 1.3; }
+.tier { display: inline-block; padding: 1px 6px; border-radius: 999px;
+  background: var(--paper-2); color: var(--ink-faint); font-size: 11px; text-transform: uppercase; letter-spacing: .05em; }
+.tier-extra { background: var(--accent-soft); color: var(--accent); }
 .foot { margin-top: 40px; padding-top: 18px; border-top: 1px solid var(--line);
   font-size: 12.5px; color: var(--ink-faint); line-height: 1.6; }
 .foot p { margin: 4px 0; }
@@ -163,8 +301,19 @@ a:hover { text-decoration: underline; }
 
 // On-demand related-principles expander. Fetches /api/related lazily when the
 // user clicks; guards against duplicate fetches (loaded flag on the wrapper).
-// No frameworks — a minimal script keeps the page LLM-free and JS-lite.
+// The picker's per-Figure "select all" checkbox mirrors its state onto every
+// Work checkbox inside its `.fig-group` section. No frameworks — a minimal
+// script keeps the page LLM-free and JS-lite.
 const CLIENT_SCRIPT = `
+document.addEventListener('change', function (event) {
+  var target = event.target;
+  if (!(target instanceof HTMLInputElement)) return;
+  if (!target.hasAttribute('data-select-all-figure')) return;
+  var group = target.closest('.fig-group');
+  if (!group) return;
+  var boxes = group.querySelectorAll('input[type="checkbox"][name="work"]');
+  for (var i = 0; i < boxes.length; i++) boxes[i].checked = target.checked;
+});
 document.addEventListener('click', function (event) {
   var target = event.target;
   if (!(target instanceof HTMLElement)) return;
