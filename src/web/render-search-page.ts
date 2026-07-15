@@ -152,13 +152,12 @@ function renderPicker(works: readonly WorkWithFigure[], scope: Scope): string {
       );
       const items = ordered
         .map((w) => {
+          // No "extra" badge: a Work being unchecked by default already signals
+          // it's outside the core set. `tier` still sinks extras to the foot.
           const checked = checkedIds.has(w.id) ? ' checked' : '';
-          const tierBadge = w.tier === 'extra'
-            ? ` <span class="tier tier-extra">extra</span>`
-            : '';
           return `<li><label class="pick">
             <input type="checkbox" name="work" value="${escapeAttribute(w.id)}"${checked} />
-            <span class="work-title">${escapeHtml(w.title)}</span>${tierBadge}
+            <span class="work-title">${escapeHtml(w.title)}</span>
           </label></li>`;
         })
         .join('');
@@ -301,9 +300,6 @@ a:hover { text-decoration: underline; }
 .works li { padding: 3px 0; }
 .pick { display: inline-flex; align-items: center; gap: 8px; cursor: pointer; color: var(--ink-soft); }
 .work-title { line-height: 1.3; }
-.tier { display: inline-block; padding: 1px 6px; border-radius: 999px;
-  background: var(--paper-2); color: var(--ink-faint); font-size: 11px; text-transform: uppercase; letter-spacing: .05em; }
-.tier-extra { background: var(--accent-soft); color: var(--accent); }
 .foot { margin-top: 40px; padding-top: 18px; border-top: 1px solid var(--line);
   font-size: 12.5px; color: var(--ink-faint); line-height: 1.6; }
 .foot p { margin: 4px 0; }
