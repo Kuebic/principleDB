@@ -54,7 +54,10 @@ export function renderSearchPage(options: RenderSearchPageOptions = {}): string 
 <body>
 <div class="wrap">
   <header class="topbar">
-    <div class="brand">principleDB <small>· the public Canon search</small></div>
+    <div class="topline">
+      <div class="brand">principleDB <small>· the public Canon search</small></div>
+      <a class="connect-link" href="/connect">connect your AI &rarr;</a>
+    </div>
     <form class="searchbox" method="get" action="/">
       <div class="search-row">
         <label for="q" class="visually-hidden">Search the Canon</label>
@@ -65,7 +68,6 @@ export function renderSearchPage(options: RenderSearchPageOptions = {}): string 
       </div>
       ${picker}
     </form>
-    <a class="connect-link" href="/connect">connect your AI &rarr;</a>
   </header>
   ${results}
   <footer class="foot">
@@ -174,8 +176,10 @@ function renderPicker(works: readonly WorkWithFigure[], scope: Scope): string {
 
   return `<details class="picker">
     <summary>Choose what to search</summary>
-    <div class="picker-body">
-      ${figureBlocks}
+    <div class="picker-scroll">
+      <div class="picker-body">
+        ${figureBlocks}
+      </div>
     </div>
   </details>`;
 }
@@ -227,12 +231,15 @@ a { color: var(--accent); text-decoration: none; }
 a:hover { text-decoration: underline; }
 .wrap { max-width: 880px; margin: 0 auto; padding: 24px 20px 80px; }
 .visually-hidden { position: absolute; width: 1px; height: 1px; overflow: hidden; clip: rect(0 0 0 0); }
-.topbar { display: flex; align-items: flex-start; gap: 14px; padding: 8px 2px 20px; }
-.brand { font-weight: 700; font-size: 18px; padding-top: 8px; }
+/* Two-row header: brand + connect on top, then the full-width search form so
+   the picker shelf below can span the whole page, not just a search column. */
+.topbar { display: flex; flex-direction: column; gap: 12px; padding: 8px 2px 20px; }
+.topline { display: flex; align-items: baseline; justify-content: space-between; gap: 14px; }
+.brand { font-weight: 700; font-size: 18px; }
 .brand small { color: var(--ink-faint); font-weight: 500; }
-.connect-link { font-size: 13px; font-weight: 600; white-space: nowrap; padding-top: 10px; }
+.connect-link { font-size: 13px; font-weight: 600; white-space: nowrap; }
 /* The form is a vertical stack: a pill row on top, the picker as a shelf below. */
-.searchbox { flex: 1; display: flex; flex-direction: column; gap: 8px; min-width: 0; }
+.searchbox { display: flex; flex-direction: column; gap: 8px; min-width: 0; }
 .search-row { display: flex; align-items: center; gap: 10px;
   background: var(--card); border: 1px solid var(--line); border-radius: 999px;
   padding: 6px 6px 6px 16px; }
@@ -271,6 +278,16 @@ a:hover { text-decoration: underline; }
    Figures grows the picker sideways, not down. Each column caps its Works
    list and scrolls internally, so a Figure with many Works (its extras at
    the foot) never stretches the whole shelf taller. */
+/* .picker-scroll wraps the scroller so the edge fades can sit fixed over its
+   left/right edges (toggled by JS when there is more to scroll into view). */
+.picker-scroll { position: relative; }
+.picker-scroll::before, .picker-scroll::after { content: ""; position: absolute;
+  top: 0; bottom: 0; width: 32px; pointer-events: none; opacity: 0;
+  transition: opacity 140ms ease; z-index: 1; }
+.picker-scroll::before { left: 0; background: linear-gradient(to right, var(--card), transparent); }
+.picker-scroll::after { right: 0; background: linear-gradient(to left, var(--card), transparent); }
+.picker-scroll.more-left::before { opacity: 1; }
+.picker-scroll.more-right::after { opacity: 1; }
 .picker-body { padding: 4px 14px 12px; display: flex; flex-wrap: nowrap; gap: 0;
   overflow-x: auto; scrollbar-width: thin; }
 .fig-group { flex: 0 0 190px; min-width: 190px; display: flex; flex-direction: column;
@@ -307,6 +324,32 @@ document.addEventListener('change', function (event) {
   var boxes = group.querySelectorAll('input[type="checkbox"][name="work"]');
   for (var i = 0; i < boxes.length; i++) boxes[i].checked = target.checked;
 });
+// Edge-fade affordance: mark a horizontally-scrollable picker so the CSS
+// gradients reveal there is more to scroll left/right. Runs when the picker
+// opens, on scroll, and on resize (Figures may over/underflow the shelf).
+function updatePickerFades() {
+  var wraps = document.querySelectorAll('.picker-scroll');
+  for (var i = 0; i < wraps.length; i++) {
+    var wrap = wraps[i];
+    var body = wrap.querySelector('.picker-body');
+    if (!body) continue;
+    var max = body.scrollWidth - body.clientWidth;
+    wrap.classList.toggle('more-left', body.scrollLeft > 1);
+    wrap.classList.toggle('more-right', body.scrollLeft < max - 1);
+  }
+}
+document.addEventListener('scroll', function (event) {
+  if (event.target instanceof HTMLElement && event.target.classList.contains('picker-body')) {
+    updatePickerFades();
+  }
+}, true);
+document.addEventListener('toggle', function (event) {
+  if (event.target instanceof HTMLElement && event.target.classList.contains('picker')) {
+    updatePickerFades();
+  }
+}, true);
+window.addEventListener('resize', updatePickerFades);
+updatePickerFades();
 document.addEventListener('click', function (event) {
   var target = event.target;
   if (!(target instanceof HTMLElement)) return;
