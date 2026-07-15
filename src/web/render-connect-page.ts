@@ -62,79 +62,8 @@ export function renderConnectPage(options: RenderConnectPageOptions): string {
         <code>list_works</code>, <code>related_principles</code>. Write tools
         stay off the public surface.</p>
     </div>
-  </section>
 
-  <section class="clients">
-    <article class="client">
-      <h2>claude.ai (web) · Claude Desktop</h2>
-      <ol>
-        <li>Open <b>Settings → Connectors</b>.</li>
-        <li>Click <b>Add custom connector</b>.</li>
-        <li>Paste the URL: <code>${mcpUrl}</code></li>
-        <li>Click <b>Add</b>. Leave OAuth fields blank — the endpoint is no-auth.</li>
-      </ol>
-      <p class="note">Available on Free, Pro, Max, Team, and Enterprise. Free is
-        limited to one custom connector; the feature is labelled beta.</p>
-    </article>
-
-    <article class="client">
-      <h2>Claude Code</h2>
-      <p>Add it once from the terminal:</p>
-      <pre><code>claude mcp add --transport http --scope user principledb ${mcpUrl}</code></pre>
-      <p class="note"><code>--scope user</code> makes it available in every project.
-        Drop the flag to add it to the current project only. Inside Claude Code,
-        <code>/mcp</code> lists connected servers.</p>
-    </article>
-
-    <article class="client">
-      <h2>ChatGPT (Developer mode)</h2>
-      <ol>
-        <li>Open <b>Settings</b> and toggle <b>Developer mode</b> on (Plus, Pro,
-          Business, Enterprise, or Edu; web only).</li>
-        <li>Add a new app pointing at: <code>${mcpUrl}</code></li>
-        <li>Set authentication to <b>None</b>.</li>
-      </ol>
-      <p class="note">Streamable HTTP is supported; the endpoint is anonymous.</p>
-    </article>
-
-    <article class="client">
-      <h2>Grok (grok.com)</h2>
-      <ol>
-        <li>Open <b>grok.com/connectors</b> and click <b>New Connector</b>.</li>
-        <li>Select <b>Custom</b>.</li>
-        <li>Enter the server URL: <code>${mcpUrl}</code></li>
-        <li>Leave authentication blank — the endpoint is no-auth. Grok discovers
-          the tools and offers them in conversations.</li>
-      </ol>
-      <p class="note">Grok 4.3 and later. Streamable HTTP transport (stdio is not
-        accepted), so the endpoint must be reachable on the public internet. Team
-        setups add it under <code>console.x.ai</code> → Grok Business → Connectors.</p>
-    </article>
-
-    <article class="client">
-      <h2>Gemini CLI</h2>
-      <p>Add it once from the terminal:</p>
-      <pre><code>gemini mcp add --transport http principledb ${mcpUrl}</code></pre>
-      <p>Or add the entry to <code>~/.gemini/settings.json</code> by hand:</p>
-      <pre><code>${escapeHtml(geminiSnippet)}</code></pre>
-      <p class="note"><code>--transport http</code> selects the streamable-HTTP
-        transport (the endpoint is remote, not stdio). No auth headers — the
-        endpoint is no-auth. Inside a session, <code>/mcp</code> lists connected
-        servers and their tools.</p>
-    </article>
-
-    <article class="client">
-      <h2>Cursor</h2>
-      <p>Add the entry to <code>~/.cursor/mcp.json</code> (create the file if it
-        doesn't exist):</p>
-      <pre><code>${escapeHtml(cursorSnippet)}</code></pre>
-      <p class="note">Restart Cursor after saving. The tools show up in the MCP
-        panel.</p>
-    </article>
-  </section>
-
-  <section class="clients">
-    <article class="client">
+    <article class="client sources">
       <h2>Core vs. supplementary sources</h2>
       <p>By default, searches cover the <b>core</b> Canon — the foundational
         scripture. Supplementary material (sermons, transcripts, later
@@ -150,6 +79,75 @@ export function renderConnectPage(options: RenderConnectPageOptions): string {
         <code>figures: ["damien-dunkley"]</code>. Call <code>list_works</code> to
         see every Work and whether it's core or extra.</p>
     </article>
+  </section>
+
+  <section class="clients">
+    <details class="client">
+      <summary><h2>claude.ai (web) · Claude Desktop</h2></summary>
+      <ol>
+        <li>Open <b>Settings → Connectors</b>.</li>
+        <li>Click <b>Add custom connector</b>.</li>
+        <li>Paste the URL: <code>${mcpUrl}</code></li>
+        <li>Click <b>Add</b>. Leave OAuth fields blank — the endpoint is no-auth.</li>
+      </ol>
+      <p class="note">Available on Free, Pro, Max, Team, and Enterprise. Free is
+        limited to one custom connector; the feature is labelled beta.</p>
+    </details>
+
+    <details class="client">
+      <summary><h2>Claude Code</h2></summary>
+      <p>Add it once from the terminal:</p>
+      <pre><code>claude mcp add --transport http --scope user principledb ${mcpUrl}</code></pre>
+      <p class="note"><code>--scope user</code> makes it available in every project.
+        Drop the flag to add it to the current project only. Inside Claude Code,
+        <code>/mcp</code> lists connected servers.</p>
+    </details>
+
+    <details class="client">
+      <summary><h2>ChatGPT (Developer mode)</h2></summary>
+      <ol>
+        <li>Open <b>Settings</b> and toggle <b>Developer mode</b> on (Plus, Pro,
+          Business, Enterprise, or Edu; web only).</li>
+        <li>Add a new app pointing at: <code>${mcpUrl}</code></li>
+        <li>Set authentication to <b>None</b>.</li>
+      </ol>
+      <p class="note">Streamable HTTP is supported; the endpoint is anonymous.</p>
+    </details>
+
+    <details class="client">
+      <summary><h2>Grok (grok.com)</h2></summary>
+      <ol>
+        <li>Open <b>grok.com/connectors</b> and click <b>New Connector</b>.</li>
+        <li>Select <b>Custom</b>.</li>
+        <li>Enter the server URL: <code>${mcpUrl}</code></li>
+        <li>Leave authentication blank — the endpoint is no-auth. Grok discovers
+          the tools and offers them in conversations.</li>
+      </ol>
+      <p class="note">Grok 4.3 and later. Streamable HTTP transport (stdio is not
+        accepted), so the endpoint must be reachable on the public internet. Team
+        setups add it under <code>console.x.ai</code> → Grok Business → Connectors.</p>
+    </details>
+
+    <details class="client">
+      <summary><h2>Gemini CLI</h2></summary>
+      <p>Add it once from the terminal:</p>
+      <pre><code>gemini mcp add --transport http principledb ${mcpUrl}</code></pre>
+      <p>Or add the entry to <code>~/.gemini/settings.json</code> by hand:</p>
+      <pre><code>${escapeHtml(geminiSnippet)}</code></pre>
+      <p class="note"><code>--transport http</code> selects the streamable-HTTP
+        transport (the endpoint is remote, not stdio). No auth headers — the
+        endpoint is no-auth. Inside a session, <code>/mcp</code> lists connected
+        servers and their tools.</p>
+    </details>
+
+    <details class="client">
+      <summary><h2>Cursor</h2></summary>
+      <p>Add the entry to <code>~/.cursor/mcp.json</code> (create the file if it
+        doesn't exist):</p>
+      <pre><code>${escapeHtml(cursorSnippet)}</code></pre>
+      <p class="note">Restart Cursor after saving. The tools show up in the MCP
+        panel.</p>
+    </details>
   </section>
 
   <footer class="foot">
@@ -208,7 +206,7 @@ pre code { background: transparent; color: inherit; padding: 0; font-size: 13px;
 .endpoint .url { display: block; margin: 6px 0 10px; padding: 8px 12px; font-size: 14px;
   background: var(--paper-2); border-radius: 6px; word-break: break-all; }
 .endpoint .sub { margin: 0; color: var(--ink-soft); font-size: 13.5px; }
-.clients { display: flex; flex-direction: column; gap: 18px; }
+.clients { display: flex; flex-direction: column; gap: 12px; }
 .client { background: var(--card); border: 1px solid var(--line); border-radius: 14px;
   padding: 18px 22px; }
 .client h2 { margin: 0 0 10px; font-size: 17px; }
@@ -216,6 +214,23 @@ pre code { background: transparent; color: inherit; padding: 0; font-size: 13px;
 .client ol { padding-left: 22px; }
 .client li { margin-bottom: 4px; }
 .client .note { font-size: 13px; color: var(--ink-faint); margin-top: 8px; }
+
+/* Always-open sources block, sitting under the endpoint. */
+.sources { margin-top: 18px; }
+.sources h2 { margin-top: 0; }
+
+/* Collapsible client cards. <summary> is the clickable header row. */
+details.client { padding: 0; }
+details.client > summary { list-style: none; cursor: pointer; padding: 16px 22px;
+  display: flex; align-items: center; gap: 10px; }
+details.client > summary::-webkit-details-marker { display: none; }
+details.client > summary::before { content: "›"; color: var(--ink-faint);
+  font-size: 18px; line-height: 1; transition: transform .15s ease; }
+details.client[open] > summary::before { transform: rotate(90deg); }
+details.client > summary h2 { margin: 0; }
+details.client > summary:hover h2 { color: var(--accent); }
+details.client > *:not(summary) { margin-left: 22px; margin-right: 22px; }
+details.client > *:last-child { margin-bottom: 18px; }
 .foot { margin-top: 40px; padding-top: 18px; border-top: 1px solid var(--line);
   font-size: 12.5px; color: var(--ink-faint); line-height: 1.6; }
 .foot p { margin: 4px 0; }
