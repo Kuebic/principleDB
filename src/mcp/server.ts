@@ -47,7 +47,7 @@ export function createPrincipleDbServer(
     'search_principles',
     {
       description:
-        'Search the Canon for atomic Principles matching a natural-language query. Each hit returns the Source’s own words at the snapped span (a Quote), with a derived label (page / timecode / position) so the caller can jump to the exact spot, and a citation carrying the Work title + Figure display name (ADR-0017). Optional `works` / `figures` scope the search: omitted ⇒ all core Works; naming a Figure expands to its Works; naming an `extra` Work opts it in. Include-only.',
+        'Search the Canon for atomic Principles matching a natural-language query. Each hit returns the Source’s own words at the snapped span (a Quote), with a derived label (page / timecode / position) so the caller can jump to the exact spot, and a citation carrying the Work title + Figure display name (ADR-0017). Optional `works` / `figures` scope the search: omitted ⇒ all core Works; naming a Figure expands to its Works; naming an `extra` Work opts it in. Include-only. Set `includeExtras: true` to search core + every supplementary (`extra`) Work in one shot.',
       inputSchema: {
         query: z.string().min(1).describe('What to search for, in natural language.'),
         limit: z
@@ -65,10 +65,14 @@ export function createPrincipleDbServer(
           .array(z.string().min(1))
           .optional()
           .describe('Optional Figure ids (or slugs) whose Works to search within. Union\'d with `works`. Omitted ⇒ all core Works.'),
+        includeExtras: z
+          .boolean()
+          .optional()
+          .describe('Union every supplementary (`extra`) Work on top of the scope. Omitted ⇒ core only; true ⇒ core + all extras (the whole Canon).'),
       },
     },
-    async ({ query, limit, works, figures }) => {
-      const response = await searchPrinciplesTool({ query, limit, works, figures }, deps);
+    async ({ query, limit, works, figures, includeExtras }) => {
+      const response = await searchPrinciplesTool({ query, limit, works, figures, includeExtras }, deps);
       return {
         content: [{ type: 'text', text: JSON.stringify(response) }],
         structuredContent: response as unknown as Record<string, unknown>,
@@ -190,7 +194,7 @@ export function createPrincipleDbServer(
     'related_principles',
     {
       description:
-        'Stack live-related Principles around a seed Principle. Relatedness is computed at query time over pgvector (ADR-0006: nothing stored, no graph), so the AI can surface siblings of a hit without a stale or hand-maintained graph. Returns the same citation-ready shape as search_principles (Source title/author/kind + the Source’s own words at the snapped span + a derived label). Optional `works` / `figures` scope the relatives the same way as search_principles: omitted ⇒ all core Works; naming a Figure expands to its Works; naming an `extra` Work opts it in. Include-only. Empty case is { related: [] }.',
+        'Stack live-related Principles around a seed Principle. Relatedness is computed at query time over pgvector (ADR-0006: nothing stored, no graph), so the AI can surface siblings of a hit without a stale or hand-maintained graph. Returns the same citation-ready shape as search_principles (Source title/author/kind + the Source’s own words at the snapped span + a derived label). Optional `works` / `figures` scope the relatives the same way as search_principles: omitted ⇒ all core Works; naming a Figure expands to its Works; naming an `extra` Work opts it in. Include-only. Set `includeExtras: true` to draw relatives from core + every supplementary (`extra`) Work. Empty case is { related: [] }.',
       inputSchema: {
         principleId: z
           .string()
@@ -211,10 +215,14 @@ export function createPrincipleDbServer(
           .array(z.string().min(1))
           .optional()
           .describe("Optional Figure ids (or slugs) whose Works to draw relatives from. Union'd with `works`. Omitted ⇒ all core Works."),
+        includeExtras: z
+          .boolean()
+          .optional()
+          .describe('Draw relatives from core + every supplementary (`extra`) Work. Omitted ⇒ core only.'),
       },
     },
-    async ({ principleId, limit, works, figures }) => {
-      const response = await relatedPrinciplesTool({ principleId, limit, works, figures }, deps);
+    async ({ principleId, limit, works, figures, includeExtras }) => {
+      const response = await relatedPrinciplesTool({ principleId, limit, works, figures, includeExtras }, deps);
       return {
         content: [{ type: 'text', text: JSON.stringify(response) }],
         structuredContent: response as unknown as Record<string, unknown>,

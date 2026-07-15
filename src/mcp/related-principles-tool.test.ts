@@ -132,6 +132,18 @@ describe('relatedPrinciplesTool', () => {
     expect(byWork.related.map((h) => h.claim)).toContain('Grace precedes cleanse');
   });
 
+  it('includeExtras: true draws relatives from core + every extra at once', async () => {
+    const { repository, seedId } = await seedScopedCanon();
+    const resp = await relatedPrinciplesTool(
+      { principleId: seedId, includeExtras: true },
+      { repository },
+    );
+    const claims = resp.related.map((h) => h.claim);
+    // Both the core sibling AND the extra neighbour surface together.
+    expect(claims).toContain('Obedience flows from grace');
+    expect(claims).toContain('Grace precedes cleanse');
+  });
+
   it('returns the well-shaped empty case ({ related: [] }) for an unknown id', async () => {
     const repository = new InMemoryRepository();
     const resp = await relatedPrinciplesTool({ principleId: 'nope' }, { repository });

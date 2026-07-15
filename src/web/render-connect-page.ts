@@ -4,8 +4,9 @@
 // face — a thought returns connected Quotes, no LLM. Depth — stacking
 // Principles into a coherent argument — stays in the owner's own AI client,
 // which is what this page exists to enable. Endpoint is anonymous + read-only
-// (three tools: search_principles, get_quote_in_context, related_principles);
-// write tools stay off the public surface (ADR-0015). No OpenAI search/fetch
+// (four tools: search_principles, get_quote_in_context, list_works,
+// related_principles); write tools stay off the public surface (ADR-0015 +
+// ADR-0017: 3 → 4 public tools with `list_works`). No OpenAI search/fetch
 // alias tools — that citability path is deferred to #41.
 //
 // Pure renderer: takes the deployed /mcp URL and returns HTML. The route
@@ -20,6 +21,13 @@ export function renderConnectPage(options: RenderConnectPageOptions): string {
   const mcpUrl = escapeHtml(options.mcpUrl);
   const cursorSnippet = JSON.stringify(
     { mcpServers: { principledb: { url: options.mcpUrl } } },
+    null,
+    2,
+  );
+  // Gemini CLI keys the remote transport off `httpUrl` (not `url`) in
+  // ~/.gemini/settings.json — a bare `url` is read as an SSE endpoint.
+  const geminiSnippet = JSON.stringify(
+    { mcpServers: { principledb: { httpUrl: options.mcpUrl } } },
     null,
     2,
   );
@@ -49,9 +57,10 @@ export function renderConnectPage(options: RenderConnectPageOptions): string {
     <div class="endpoint">
       <label>Public MCP endpoint</label>
       <code class="url">${mcpUrl}</code>
-      <p class="sub">Anonymous · read-only · three tools:
+      <p class="sub">Anonymous · read-only · four tools:
         <code>search_principles</code>, <code>get_quote_in_context</code>,
-        <code>related_principles</code>. Write tools stay off the public surface.</p>
+        <code>list_works</code>, <code>related_principles</code>. Write tools
+        stay off the public surface.</p>
     </div>
   </section>
 
@@ -103,12 +112,43 @@ export function renderConnectPage(options: RenderConnectPageOptions): string {
     </article>
 
     <article class="client">
+      <h2>Gemini CLI</h2>
+      <p>Add it once from the terminal:</p>
+      <pre><code>gemini mcp add --transport http principledb ${mcpUrl}</code></pre>
+      <p>Or add the entry to <code>~/.gemini/settings.json</code> by hand:</p>
+      <pre><code>${escapeHtml(geminiSnippet)}</code></pre>
+      <p class="note"><code>--transport http</code> selects the streamable-HTTP
+        transport (the endpoint is remote, not stdio). No auth headers — the
+        endpoint is no-auth. Inside a session, <code>/mcp</code> lists connected
+        servers and their tools.</p>
+    </article>
+
+    <article class="client">
       <h2>Cursor</h2>
       <p>Add the entry to <code>~/.cursor/mcp.json</code> (create the file if it
         doesn't exist):</p>
       <pre><code>${escapeHtml(cursorSnippet)}</code></pre>
       <p class="note">Restart Cursor after saving. The tools show up in the MCP
         panel.</p>
+    </article>
+  </section>
+
+  <section class="clients">
+    <article class="client">
+      <h2>Core vs. supplementary sources</h2>
+      <p>By default, searches cover the <b>core</b> Canon — the foundational
+        scripture. Supplementary material (sermons, transcripts, later
+        commentary) is marked <b>extra</b> and stays <b>out of results unless you
+        ask for it</b>, so a plain question isn't answered from a one-off talk.</p>
+      <p>To pull the supplementary sources in, tell your AI client to
+        <b>include the extra sources</b> — it sets <code>includeExtras: true</code>
+        on <code>search_principles</code> (and <code>related_principles</code>),
+        which searches the core Canon <i>plus</i> every extra source at once:</p>
+      <pre><code>search_principles(query: "the meaning of special grace", includeExtras: true)</code></pre>
+      <p class="note">To narrow to one speaker or book instead, name it — e.g.
+        &ldquo;only look through <b>Damien Dunkley</b>&rdquo; sets
+        <code>figures: ["damien-dunkley"]</code>. Call <code>list_works</code> to
+        see every Work and whether it's core or extra.</p>
     </article>
   </section>
 

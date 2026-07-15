@@ -220,6 +220,26 @@ describe('searchPrinciplesTool', () => {
     expect(resp.hits.map((h) => h.source.id)).toEqual(['s_extra']);
   });
 
+  it('includeExtras: true searches core + every extra in one shot (no ids named)', async () => {
+    const deps = await seedScopedCanon();
+    const resp = await searchPrinciplesTool(
+      { query: 'grace shines', includeExtras: true },
+      deps,
+    );
+    const ids = new Set(resp.hits.map((h) => h.source.id));
+    expect(ids).toEqual(new Set(['s_csg', 's_tm', 's_extra']));
+  });
+
+  it('includeExtras unions extras on top of a named Work base (not the rest of core)', async () => {
+    const deps = await seedScopedCanon();
+    const resp = await searchPrinciplesTool(
+      { query: 'grace shines', works: ['work_csg'], includeExtras: true },
+      deps,
+    );
+    const ids = new Set(resp.hits.map((h) => h.source.id));
+    expect(ids).toEqual(new Set(['s_csg', 's_extra']));
+  });
+
   it('empty-but-valid scope (unknown ids) returns the same `{ hits: [] }` shape as a no-match', async () => {
     const deps = await seedScopedCanon();
     const resp = await searchPrinciplesTool(

@@ -10,6 +10,10 @@
 //     include-only (no exclude list).
 //   - Naming an `extra` Work opts it in; unscoped searches never include
 //     extras.
+//   - `includeExtras` is a one-shot toggle that unions ALL `extra` Works on
+//     top of whatever base the works/figures select — so `{}` stays core, but
+//     `{ includeExtras: true }` means "core + every extra" (the whole Canon)
+//     without having to enumerate each extra id.
 //   - Unknown ids are ignored (defensive — a stale URL/param never crashes
 //     the search).
 
@@ -18,6 +22,10 @@ import type { CanonRepository, WorkWithFigure } from './ports';
 export interface Scope {
   works?: readonly string[];
   figures?: readonly string[];
+  // One-shot "include every extra Work" toggle (ADR-0017). Union'd on top of
+  // the works/figures base: omitted/false ⇒ extras stay opt-in per-id; true ⇒
+  // all extras join the result set.
+  includeExtras?: boolean;
 }
 
 export interface ResolvedScope {
@@ -45,20 +53,33 @@ export function pickWorkIds(
 ): Set<string> {
   const works = scope.works ?? [];
   const figures = scope.figures ?? [];
-  if (works.length === 0 && figures.length === 0) {
-    return new Set(listings.filter((l) => l.work.tier === 'core').map((l) => l.work.id));
-  }
+  const includeExtras = scope.includeExtras ?? false;
+
   const chosen = new Set<string>();
-  const validWorkIds = new Set(listings.map((l) => l.work.id));
-  for (const id of works) {
-    if (validWorkIds.has(id)) chosen.add(id);
-  }
-  if (figures.length > 0) {
-    const figureIds = new Set(figures);
+  if (works.length === 0 && figures.length === 0) {
+    // Default base: all core Works (dynamic — a new core Work joins for free).
     for (const l of listings) {
-      if (figureIds.has(l.figure.id) || figureIds.has(l.figure.slug)) {
-        chosen.add(l.work.id);
+      if (l.work.tier === 'core') chosen.add(l.work.id);
+    }
+  } else {
+    // Named base: only the named Works/Figures — no implicit core.
+    const validWorkIds = new Set(listings.map((l) => l.work.id));
+    for (const id of works) {
+      if (validWorkIds.has(id)) chosen.add(id);
+    }
+    if (figures.length > 0) {
+      const figureIds = new Set(figures);
+      for (const l of listings) {
+        if (figureIds.has(l.figure.id) || figureIds.has(l.figure.slug)) {
+          chosen.add(l.work.id);
+        }
       }
+    }
+  }
+  // One-shot opt-in: union every `extra` Work on top of the base above.
+  if (includeExtras) {
+    for (const l of listings) {
+      if (l.work.tier === 'extra') chosen.add(l.work.id);
     }
   }
   return chosen;

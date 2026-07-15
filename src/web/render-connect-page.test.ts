@@ -1,8 +1,10 @@
 // Connect-your-AI page renderer — Slice W5 (#50).
 // Static content: copy-paste connect steps against the deployed /mcp URL for
-// claude.ai/Desktop custom connectors, Claude Code, ChatGPT dev mode, Grok, Cursor.
-// The endpoint is anonymous + read-only; no OpenAI search/fetch alias tools
-// (deferred, #41). This module is a pure renderer.
+// claude.ai/Desktop custom connectors, Claude Code, ChatGPT dev mode, Grok,
+// Gemini CLI, Cursor. The endpoint is anonymous + read-only, exposing four read
+// tools (search_principles, get_quote_in_context, list_works,
+// related_principles); no OpenAI search/fetch alias tools (deferred, #41).
+// This module is a pure renderer.
 
 import { describe, expect, it } from 'vitest';
 import { renderConnectPage } from './render-connect-page';
@@ -26,7 +28,7 @@ describe('renderConnectPage', () => {
     expect(html).toContain('read-only');
   });
 
-  it('names each connect step: claude.ai / Desktop, Claude Code, ChatGPT dev mode, Grok, Cursor', () => {
+  it('names each connect step: claude.ai / Desktop, Claude Code, ChatGPT dev mode, Grok, Gemini, Cursor', () => {
     const html = renderConnectPage({ mcpUrl: MCP_URL });
     expect(html).toMatch(/claude\.ai/i);
     expect(html).toMatch(/claude desktop/i);
@@ -34,7 +36,27 @@ describe('renderConnectPage', () => {
     expect(html).toMatch(/chatgpt/i);
     expect(html).toMatch(/developer mode|dev mode/i);
     expect(html).toMatch(/grok/i);
+    expect(html).toMatch(/gemini/i);
     expect(html).toMatch(/cursor/i);
+  });
+
+  it('lists all four public read tools, including list_works (ADR-0017)', () => {
+    const html = renderConnectPage({ mcpUrl: MCP_URL });
+    expect(html).toContain('search_principles');
+    expect(html).toContain('get_quote_in_context');
+    expect(html).toContain('list_works');
+    expect(html).toContain('related_principles');
+  });
+
+  it('includes the Gemini CLI command with --transport http and the httpUrl snippet', () => {
+    // Gemini CLI adds a remote streamable-HTTP server via
+    // `gemini mcp add --transport http <name> <url>`, and its settings.json
+    // keys the remote transport off `httpUrl` (a bare `url` is read as SSE).
+    const html = renderConnectPage({ mcpUrl: MCP_URL });
+    expect(html).toContain('gemini mcp add');
+    expect(html).toContain('--transport http');
+    expect(html).toContain('httpUrl');
+    expect(html).toContain(MCP_URL);
   });
 
   it('includes the Grok custom-connector steps (grok.com/connectors → Custom → the /mcp URL)', () => {

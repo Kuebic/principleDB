@@ -30,6 +30,9 @@ export interface SearchPrinciplesRequest {
   limit?: number;
   works?: readonly string[];
   figures?: readonly string[];
+  // One-shot "search core + every extra Work" toggle (ADR-0017). Union'd on
+  // top of works/figures; omit for the core-only default.
+  includeExtras?: boolean;
 }
 
 export interface SearchHitResponse {
@@ -66,7 +69,9 @@ export async function searchPrinciplesTool(
 ): Promise<SearchPrinciplesResponse> {
   const limit = req.limit ?? 5;
   const scope: Scope | undefined =
-    req.works || req.figures ? { works: req.works, figures: req.figures } : undefined;
+    req.works || req.figures || req.includeExtras
+      ? { works: req.works, figures: req.figures, includeExtras: req.includeExtras }
+      : undefined;
   const hits = await searchPrinciples(req.query, { ...deps, limit, scope });
   return { hits: await toSearchHitResponses(hits, deps.repository) };
 }

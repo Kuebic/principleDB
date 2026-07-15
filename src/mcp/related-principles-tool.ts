@@ -21,6 +21,8 @@ export interface RelatedPrinciplesRequest {
   // naming a Figure/Work opts it in. Include-only, unioned.
   works?: readonly string[];
   figures?: readonly string[];
+  // One-shot "include every extra Work" toggle. Union'd on top of works/figures.
+  includeExtras?: boolean;
 }
 
 export interface RelatedPrinciplesResponse {
@@ -32,7 +34,9 @@ export async function relatedPrinciplesTool(
   deps: { repository: CanonRepository },
 ): Promise<RelatedPrinciplesResponse> {
   const scope: Scope | undefined =
-    req.works || req.figures ? { works: req.works, figures: req.figures } : undefined;
+    req.works || req.figures || req.includeExtras
+      ? { works: req.works, figures: req.figures, includeExtras: req.includeExtras }
+      : undefined;
   const hits = await relatedPrinciples(req.principleId, {
     repository: deps.repository,
     limit: req.limit,

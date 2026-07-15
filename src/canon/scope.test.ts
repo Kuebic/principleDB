@@ -93,4 +93,27 @@ describe('resolveScope', () => {
     expect(workIds).toEqual([]);
     expect(sourceIds).toEqual([]);
   });
+
+  it('includeExtras on an otherwise-empty scope → core + every extra (the whole Canon)', async () => {
+    const repo = await seed();
+    const { workIds, sourceIds } = await resolveScope({ includeExtras: true }, repo);
+    expect(new Set(workIds)).toEqual(
+      new Set(['work_csg', 'work_dp', 'work_tm', 'work_ut', 'work_extra']),
+    );
+    expect(new Set(sourceIds)).toEqual(
+      new Set(['s_csg_1', 's_csg_2', 's_dp_1', 's_tm_1', 's_ut_1', 's_extra_1']),
+    );
+  });
+
+  it('includeExtras unions all extras on top of a named base (does not pull in core)', async () => {
+    const repo = await seed();
+    // work_dp is a single core Work; includeExtras adds the extra, not the rest
+    // of core.
+    const { workIds, sourceIds } = await resolveScope(
+      { works: ['work_dp'], includeExtras: true },
+      repo,
+    );
+    expect(new Set(workIds)).toEqual(new Set(['work_dp', 'work_extra']));
+    expect(new Set(sourceIds)).toEqual(new Set(['s_dp_1', 's_extra_1']));
+  });
 });
