@@ -230,12 +230,15 @@ export class InMemoryRepository implements CanonRepository {
     principleId: string,
     threshold: number,
     limit: number,
+    scopedSourceIds?: readonly string[],
   ): Promise<SearchHit[]> {
+    if (scopedSourceIds && scopedSourceIds.length === 0) return [];
+    const scope = scopedSourceIds ? new Set(scopedSourceIds) : null;
     const all = this.allPrinciplesWithAttachedQuotes();
     const seed = all.find(({ principle }) => principle.id === principleId);
     if (!seed) return [];
     const hits = all
-      .filter(({ principle }) => principle.id !== principleId)
+      .filter(({ principle, sourceId }) => principle.id !== principleId && (!scope || scope.has(sourceId)))
       .map(({ principle }) => ({
         principle,
         score: cosine(seed.principle.embedding, principle.embedding),

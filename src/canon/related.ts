@@ -7,6 +7,8 @@
 // empty case rather than a list of low-score unrelated hits.
 
 import type { CanonRepository, SearchHit } from './ports';
+import { resolveScopedSourceIds } from './search';
+import type { Scope } from './scope';
 
 export const DEFAULT_RELATED_LIMIT = 5;
 // Below this score, in-memory bag-of-words (FakeIngestProvider) and production
@@ -19,6 +21,12 @@ export interface RelatedDeps {
   repository: CanonRepository;
   limit?: number;
   threshold?: number;
+  // `scope` (ADR-0017) gates relatives by the SAME tier rule as search:
+  // omitted ⇒ core Works only, so an `extra` neighbour no longer leaks into an
+  // unscoped stack; naming a Figure/Work opts it in. Resolved through the
+  // shared helper so "omitted ⇒ core" and the pre-backfill "no Works ⇒
+  // unscoped" case stay identical across both surfaces.
+  scope?: Scope;
 }
 
 export async function relatedPrinciples(
@@ -27,5 +35,8 @@ export async function relatedPrinciples(
 ): Promise<SearchHit[]> {
   const limit = deps.limit ?? DEFAULT_RELATED_LIMIT;
   const threshold = deps.threshold ?? DEFAULT_RELATED_THRESHOLD;
-  return deps.repository.findRelatedPrinciples(principleId, threshold, limit);
+  const scopedSourceIds = await resolveScopedSourceIds(deps.scope, deps.repository);
+  // All named ids unknown ⇒ empty set ⇒ nothing in scope; skip the seed read.
+  if (scopedSourceIds !== undefined && scopedSourceIds.length === 0) return [];
+  return deps.repository.findRelatedPrinciples(principleId, threshold, limit, scopedSourceIds);
 }

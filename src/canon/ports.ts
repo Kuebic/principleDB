@@ -184,9 +184,17 @@ export interface CanonRepository {
   // Principles whose cosine to `principleId`'s embedding is at or above
   // `threshold`, EXCLUDING the seed itself. Computed on read — nothing
   // stored, no graph (ADR-0006). Unknown seed id ⇒ empty array.
+  //
+  // `scopedSourceIds` (ADR-0017) restricts relatives to Principles whose home
+  // Source is in the set, applied as a pre-filter — the SAME tier gate
+  // searchByEmbedding uses, so an `extra` neighbour can't leak into an
+  // unscoped stack the way it did before. Empty array = no matches; omitting
+  // the arg keeps the unscoped behavior (used by dedup/tests, not the public
+  // tool, which always passes the resolved core-or-named set).
   findRelatedPrinciples(
     principleId: string,
     threshold: number,
     limit: number,
+    scopedSourceIds?: readonly string[],
   ): Promise<SearchHit[]>;
 }

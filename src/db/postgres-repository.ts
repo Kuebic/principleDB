@@ -403,7 +403,13 @@ export class PostgresCanonRepository implements CanonRepository {
     principleId: string,
     threshold: number,
     limit: number,
+    scopedSourceIds?: readonly string[],
   ): Promise<SearchHit[]> {
+    // An empty scope is a deliberate "nothing selected" — short-circuit before
+    // the seed read so an empty inArray() never reaches Postgres (mirrors
+    // searchByEmbedding).
+    if (scopedSourceIds && scopedSourceIds.length === 0) return [];
+
     // Look up the seed embedding directly. A correlated subquery would push
     // this into the same plan, but the lookup is cheap (PK) and keeping it as
     // a separate read makes the "seed missing ⇒ []" branch explicit.
@@ -432,6 +438,11 @@ export class PostgresCanonRepository implements CanonRepository {
         and(
           ne(schema.principle.id, principleId),
           sql`1 - (${distance}) >= ${threshold}`,
+          // Tier/scope pre-filter (ADR-0017): keep only relatives whose home
+          // Source is in scope. `undefined` ⇒ no filter (unscoped callers).
+          scopedSourceIds
+            ? inArray(schema.principle.sourceId, scopedSourceIds)
+            : undefined,
         ),
       )
       .orderBy(distance)

@@ -190,7 +190,7 @@ export function createPrincipleDbServer(
     'related_principles',
     {
       description:
-        'Stack live-related Principles around a seed Principle. Relatedness is computed at query time over pgvector (ADR-0006: nothing stored, no graph), so the AI can surface siblings of a hit without a stale or hand-maintained graph. Returns the same citation-ready shape as search_principles (Source title/author/kind + the Source’s own words at the snapped span + a derived label). Empty case is { related: [] }.',
+        'Stack live-related Principles around a seed Principle. Relatedness is computed at query time over pgvector (ADR-0006: nothing stored, no graph), so the AI can surface siblings of a hit without a stale or hand-maintained graph. Returns the same citation-ready shape as search_principles (Source title/author/kind + the Source’s own words at the snapped span + a derived label). Optional `works` / `figures` scope the relatives the same way as search_principles: omitted ⇒ all core Works; naming a Figure expands to its Works; naming an `extra` Work opts it in. Include-only. Empty case is { related: [] }.',
       inputSchema: {
         principleId: z
           .string()
@@ -203,10 +203,18 @@ export function createPrincipleDbServer(
           .max(50)
           .optional()
           .describe('Max related Principles to return. Defaults to 5.'),
+        works: z
+          .array(z.string().min(1))
+          .optional()
+          .describe("Optional Work ids to draw relatives from. Union'd with `figures`. Omitted ⇒ all core Works."),
+        figures: z
+          .array(z.string().min(1))
+          .optional()
+          .describe("Optional Figure ids (or slugs) whose Works to draw relatives from. Union'd with `works`. Omitted ⇒ all core Works."),
       },
     },
-    async ({ principleId, limit }) => {
-      const response = await relatedPrinciplesTool({ principleId, limit }, deps);
+    async ({ principleId, limit, works, figures }) => {
+      const response = await relatedPrinciplesTool({ principleId, limit, works, figures }, deps);
       return {
         content: [{ type: 'text', text: JSON.stringify(response) }],
         structuredContent: response as unknown as Record<string, unknown>,

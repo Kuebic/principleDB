@@ -10,11 +10,17 @@
 
 import type { CanonRepository } from '../canon/ports';
 import { relatedPrinciples } from '../canon/related';
+import type { Scope } from '../canon/scope';
 import { toSearchHitResponses, type SearchHitResponse } from './search-principles-tool';
 
 export interface RelatedPrinciplesRequest {
   principleId: string;
   limit?: number;
+  // Same tier scoping as search_principles (ADR-0017): omitted ⇒ core Works
+  // only, so a related stack never surfaces an `extra` neighbour by default;
+  // naming a Figure/Work opts it in. Include-only, unioned.
+  works?: readonly string[];
+  figures?: readonly string[];
 }
 
 export interface RelatedPrinciplesResponse {
@@ -25,9 +31,12 @@ export async function relatedPrinciplesTool(
   req: RelatedPrinciplesRequest,
   deps: { repository: CanonRepository },
 ): Promise<RelatedPrinciplesResponse> {
+  const scope: Scope | undefined =
+    req.works || req.figures ? { works: req.works, figures: req.figures } : undefined;
   const hits = await relatedPrinciples(req.principleId, {
     repository: deps.repository,
     limit: req.limit,
+    scope,
   });
   return { related: await toSearchHitResponses(hits, deps.repository) };
 }

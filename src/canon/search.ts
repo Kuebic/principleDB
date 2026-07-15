@@ -37,7 +37,7 @@ export async function searchPrinciples(query: string, deps: SearchDeps): Promise
 //   - Scope omitted AND the repo has NO Works ⇒ `undefined` — the pre-backfill
 //     / test fixture case where no Sources have been assigned a Work yet; the
 //     unscoped call path must not vanish here.
-async function resolveScopedSourceIds(
+export async function resolveScopedSourceIds(
   scope: Scope | undefined,
   repository: CanonRepository,
 ): Promise<string[] | undefined> {
