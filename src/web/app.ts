@@ -168,8 +168,12 @@ export function createWebApp(deps: ServerDeps, options: WebAppOptions = {}): Hon
     if (offset instanceof Error) {
       return c.json({ error: offset.message }, 400);
     }
-    const listings = await deps.repository.listWorks();
+    const [listings, editions] = await Promise.all([
+      deps.repository.listWorks(),
+      deps.repository.listEditions(),
+    ]);
     const worksByWorkId = new Map(listings.map((l) => [l.work.id, l] as const));
+    const editionsById = new Map(editions.map((e) => [e.id, e] as const));
     // Extras start at index 1 (the lead lives at 0) — translate the extras-
     // relative offset to the flat quote index the repo indexes by.
     const flatOffset = 1 + offset;
@@ -181,7 +185,8 @@ export function createWebApp(deps: ServerDeps, options: WebAppOptions = {}): Hon
     const hasMore = rows.length > EXTRAS_PAGE_SIZE;
     const page = hasMore ? rows.slice(0, EXTRAS_PAGE_SIZE) : rows;
     const quotes = page.map(({ quote, source }) => {
-      const wf = source.workId ? worksByWorkId.get(source.workId) : undefined;
+      const edition = source.editionId ? editionsById.get(source.editionId) : undefined;
+      const wf = edition ? worksByWorkId.get(edition.workId) : undefined;
       return {
         id: quote.id,
         text: source.text.slice(quote.span.start, quote.span.end),

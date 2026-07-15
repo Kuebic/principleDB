@@ -19,6 +19,7 @@ const graceSermon: Source = {
   text: 'Grace precedes obedience. We are loved first. Obedience flows from being loved. Mercy comes before judgment in every age.',
   r2Key: null,
   structureMap: { kind: 'none' },
+  editionId: 'ed_seed',
 };
 
 const unrelatedSermon: Source = {
@@ -30,6 +31,7 @@ const unrelatedSermon: Source = {
   text: 'The empty seat is the assignment. Hospitality begins where comfort ends.',
   r2Key: null,
   structureMap: { kind: 'none' },
+  editionId: 'ed_seed',
 };
 
 describe('relatedPrinciples', () => {

@@ -194,15 +194,13 @@ describe('declarative Drizzle schema (ADR-0005)', () => {
       });
     });
 
-    it('source.work_id is nullable during the backfill window and FKs to work', () => {
-      // Nullable so the migration lands without a data change; the backfill
-      // populates it. New ingest paths assign a Work at write time.
-      expect(column(source, 'work_id').notNull).toBe(false);
-      expect(fkTargets(source)).toContainEqual({
-        column: 'work_id',
-        refTable: 'work',
-        refColumn: 'id',
-      });
+    it('source.work_id has been retired (ADR-0018 slice #61)', () => {
+      // Post-#61 Work is resolved through Edition; the second-drifting-path-
+      // to-identity risk ADR-0017 removed cannot reappear.
+      const columns = getTableConfig(source).columns.map((c) => c.name);
+      expect(columns).not.toContain('work_id');
+      const fks = fkTargets(source);
+      expect(fks.some((fk) => fk.column === 'work_id')).toBe(false);
     });
   });
 
@@ -229,11 +227,10 @@ describe('declarative Drizzle schema (ADR-0005)', () => {
       });
     });
 
-    it('source.edition_id is nullable during the backfill window and FKs to edition', () => {
-      // Same expand-then-contract posture ADR-0017 used for `work_id`: add
-      // the column nullable, backfill in a separate slice, drop the old
-      // `work_id` column in the resolution slice.
-      expect(column(source, 'edition_id').notNull).toBe(false);
+    it('source.edition_id is NOT NULL and FKs to edition — the single link up the hierarchy (ADR-0018 slice #61)', () => {
+      // After #61 the expand-then-contract landed: `edition_id` is the sole
+      // link from Source up the hierarchy (Source → Edition → Work → Figure).
+      expect(column(source, 'edition_id').notNull).toBe(true);
       expect(fkTargets(source)).toContainEqual({
         column: 'edition_id',
         refTable: 'edition',

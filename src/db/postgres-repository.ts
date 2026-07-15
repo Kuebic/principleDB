@@ -73,6 +73,14 @@ export class PostgresCanonRepository implements CanonRepository {
   }
 
   async upsertSource(source: Source): Promise<void> {
+    // `edition_id` is NOT NULL in the schema post-#61 — a null here would be
+    // rejected by Postgres. The domain type keeps it optional so tests can
+    // construct in-memory Sources without threading an Edition through.
+    if (source.editionId == null) {
+      throw new Error(
+        `upsertSource: source.editionId is required for Postgres persistence (source id: ${source.id})`,
+      );
+    }
     const row = {
       id: source.id,
       title: source.title,
@@ -82,8 +90,7 @@ export class PostgresCanonRepository implements CanonRepository {
       text: source.text,
       r2Key: source.r2Key,
       structureMap: source.structureMap,
-      workId: source.workId ?? null,
-      editionId: source.editionId ?? null,
+      editionId: source.editionId,
     };
     await this.db
       .insert(schema.source)
@@ -108,7 +115,6 @@ export class PostgresCanonRepository implements CanonRepository {
       text: row.text,
       r2Key: row.r2Key,
       structureMap: row.structureMap as StructureMap,
-      workId: row.workId,
       editionId: row.editionId,
     };
   }
@@ -433,7 +439,6 @@ export class PostgresCanonRepository implements CanonRepository {
         sourceText: schema.source.text,
         sourceR2Key: schema.source.r2Key,
         sourceStructureMap: schema.source.structureMap,
-        sourceWorkId: schema.source.workId,
         sourceEditionId: schema.source.editionId,
       })
       .from(schema.quote)
@@ -465,7 +470,6 @@ export class PostgresCanonRepository implements CanonRepository {
         text: r.sourceText,
         r2Key: r.sourceR2Key,
         structureMap: r.sourceStructureMap as StructureMap,
-        workId: r.sourceWorkId,
         editionId: r.sourceEditionId,
       },
     }));
@@ -702,6 +706,20 @@ export class PostgresCanonRepository implements CanonRepository {
     };
   }
 
+  async listEditions(): Promise<Edition[]> {
+    const rows = await this.db.select().from(schema.edition);
+    return rows.map((row) => ({
+      id: row.id,
+      workId: row.workId,
+      label: row.label,
+      recension: row.recension,
+      language: row.language,
+      publishedDate: row.publishedDate,
+      publisher: row.publisher,
+      notes: row.notes,
+    }));
+  }
+
   async listWorks(): Promise<WorkWithFigure[]> {
     const rows = await this.db
       .select({
@@ -731,10 +749,15 @@ export class PostgresCanonRepository implements CanonRepository {
 
   async listSourceIdsInWorks(workIds: string[]): Promise<string[]> {
     if (workIds.length === 0) return [];
+    // Resolves through Editions post-#61 (Work → Editions → Sources). A Work
+    // with two Editions unions both Editions' Sources; the port's Work-ids-in
+    // → Source-ids-out contract stays unchanged so callers need no signature
+    // change.
     const rows = await this.db
       .select({ id: schema.source.id })
       .from(schema.source)
-      .where(inArray(schema.source.workId, workIds));
+      .innerJoin(schema.edition, eq(schema.source.editionId, schema.edition.id))
+      .where(inArray(schema.edition.workId, workIds));
     return rows.map((r) => r.id);
   }
 
@@ -744,17 +767,9 @@ export class PostgresCanonRepository implements CanonRepository {
         id: schema.source.id,
         author: schema.source.author,
         title: schema.source.title,
-        workId: schema.source.workId,
         editionId: schema.source.editionId,
       })
       .from(schema.source);
-  }
-
-  async assignSourceToWork(sourceId: string, workId: string): Promise<void> {
-    await this.db
-      .update(schema.source)
-      .set({ workId })
-      .where(eq(schema.source.id, sourceId));
   }
 
   async assignSourceToEdition(sourceId: string, editionId: string): Promise<void> {

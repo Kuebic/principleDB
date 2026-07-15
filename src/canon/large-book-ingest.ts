@@ -38,6 +38,11 @@ export interface LargeBookSourceMeta {
   title: string;
   author: string;
   date: string;
+  // Post-#61 every Source anchors to an Edition (ADR-0018). Optional at this
+  // boundary so unit tests exercising extraction don't have to seed one;
+  // production ingest supplies it and the Postgres schema is NOT NULL so a
+  // missing Edition fails cleanly at INSERT.
+  editionId?: string;
   kind?: SourceKind;
 }
 
@@ -101,6 +106,7 @@ export async function ingestLargeBookSource(
     text,
     r2Key,
     structureMap,
+    editionId: meta.editionId ?? null,
   };
 
   const items: DistilledItem[] = [];

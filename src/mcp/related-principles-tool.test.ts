@@ -7,7 +7,7 @@ import { describe, expect, it } from 'vitest';
 import { FakeIngestProvider } from '../canon/fake-provider';
 import { ingestSource } from '../canon/ingest';
 import { InMemoryRepository } from '../canon/in-memory-repository';
-import type { Source } from '../canon/types';
+import type { Edition, Source } from '../canon/types';
 import { relatedPrinciplesTool } from './related-principles-tool';
 
 const graceSermon: Source = {
@@ -19,7 +19,21 @@ const graceSermon: Source = {
   text: 'Grace precedes obedience. We are loved first. Obedience flows from being loved.',
   r2Key: null,
   structureMap: { kind: 'none' },
+  editionId: 'ed_seed',
 };
+
+function mkEdition(id: string, workId: string): Edition {
+  return {
+    id,
+    workId,
+    label: id,
+    recension: 'ffwpu-post-2012',
+    language: 'en',
+    publishedDate: null,
+    publisher: null,
+    notes: null,
+  };
+}
 
 describe('relatedPrinciplesTool', () => {
   it("hits each carry the Source's own words at the snapped span and a derived label", async () => {
@@ -68,6 +82,8 @@ describe('relatedPrinciplesTool', () => {
     await repository.upsertFigure({ id: 'fig_dd', slug: 'damien-dunkley', displayName: 'Damien Dunkley' });
     await repository.upsertWork({ id: 'work_core', title: 'Cheon Seong Gyeong', figureId: 'fig_smm', tier: 'core' });
     await repository.upsertWork({ id: 'work_extra', title: 'The Meaning of Special Grace', figureId: 'fig_dd', tier: 'extra' });
+    await repository.upsertEdition(mkEdition('ed_core', 'work_core'));
+    await repository.upsertEdition(mkEdition('ed_extra', 'work_extra'));
 
     const core: Source = {
       id: 's_core',
@@ -78,7 +94,7 @@ describe('relatedPrinciplesTool', () => {
       text: 'Grace precedes obedience. Obedience flows from grace.',
       r2Key: null,
       structureMap: { kind: 'none' },
-      workId: 'work_core',
+      editionId: 'ed_core',
     };
     const extra: Source = {
       id: 's_extra',
@@ -89,7 +105,7 @@ describe('relatedPrinciplesTool', () => {
       text: 'Grace precedes cleanse.',
       r2Key: null,
       structureMap: { kind: 'none' },
-      workId: 'work_extra',
+      editionId: 'ed_extra',
     };
     await ingestSource(core, { provider, repository });
     await ingestSource(extra, { provider, repository });

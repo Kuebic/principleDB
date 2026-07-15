@@ -40,15 +40,30 @@ const sermon: Source = {
   ].join('\n'),
   r2Key: null,
   structureMap: { kind: 'none' },
-  // workId is nullable during the backfill window (ADR-0017); an
-  // unassigned Source round-trips as `null`, so pin it here for the
-  // round-trip assertion.
-  workId: null,
-  // editionId is nullable during the ADR-0018 backfill window (issue #59): the
-  // migration adds the column, then a later slice (#60) assigns every Source
-  // to its Edition. New ingest paths will assign an Edition at write time.
-  editionId: null,
+  // Post-#61 `Source.editionId` is NOT NULL and is the single link from
+  // Source up the hierarchy. Every test must seed the Edition (and its Work +
+  // Figure) before upserting a Source that FK-references it.
+  editionId: 'ed_seed',
 };
+
+async function seedFoundingEdition(repo: PostgresCanonRepository): Promise<void> {
+  await repo.upsertFigure({ id: 'fig_seed', slug: 'seed', displayName: 'Seed' });
+  await repo.upsertWork({ id: 'work_seed', title: 'Seed', figureId: 'fig_seed', tier: 'core' });
+  await repo.upsertEdition(mkTestEdition('ed_seed', 'work_seed'));
+}
+
+function mkTestEdition(id: string, workId: string) {
+  return {
+    id,
+    workId,
+    label: id,
+    recension: 'ffwpu-post-2012',
+    language: 'en',
+    publishedDate: null,
+    publisher: null,
+    notes: null,
+  };
+}
 
 const provenanceA: DistilProvenance = {
   distilModel: 'claude-opus-4-8',
@@ -78,15 +93,18 @@ describe.skipIf(!DATABASE_URL)('PostgresCanonRepository (integration)', () => {
   }, 30_000);
 
   beforeEach(async () => {
-    // Clean state between tests so each can use stable IDs. Work + Figure
-    // truncate last: `source.work_id → work.id` is ON DELETE RESTRICT (a Work
-    // with Sources cannot be dropped), so Sources must go first; TRUNCATE on
-    // one statement lifts that ordering. `edition` sits between Work and
-    // Source (ADR-0018) and shares the same RESTRICT posture — folding it
-    // into the same TRUNCATE statement lifts the ordering constraint too.
+    // Clean state between tests so each can use stable IDs. Work + Figure +
+    // Edition truncate last: `source.edition_id → edition.id` and
+    // `edition.work_id → work.id` are both ON DELETE RESTRICT (a Work with
+    // Sources cannot be dropped), so Sources must go first; TRUNCATE on
+    // one statement lifts that ordering.
     await pool.query(
       `TRUNCATE "${schema}"."dedup_decision", "${schema}"."review_candidate", "${schema}"."quote", "${schema}"."principle", "${schema}"."source", "${schema}"."edition", "${schema}"."work", "${schema}"."figure" CASCADE`,
     );
+    // The `sermon` fixture (and most tests) references `ed_seed`; seed the
+    // founding Figure/Work/Edition before every test so `source.edition_id`
+    // FKs resolve.
+    await seedFoundingEdition(repo);
   });
 
   it('round-trips a Source through upsert + get', async () => {
@@ -254,6 +272,7 @@ describe.skipIf(!DATABASE_URL)('PostgresCanonRepository (integration)', () => {
       text: 'Grace precedes obedience here too.',
       r2Key: null,
       structureMap: { kind: 'none' },
+      editionId: 'ed_seed',
     };
 
     it('attaches a near-identical claim from another Source as a Quote on the existing Principle', async () => {
@@ -381,6 +400,7 @@ describe.skipIf(!DATABASE_URL)('PostgresCanonRepository (integration)', () => {
       text: 'Grace precedes obedience. Faith without works is dead. Love your neighbor as yourself.',
       r2Key: null,
       structureMap: { kind: 'none' },
+      editionId: 'ed_seed',
     };
 
     it('returns the same top-K per input embedding as the per-embedding path (byte-identical)', async () => {
@@ -496,6 +516,7 @@ describe.skipIf(!DATABASE_URL)('PostgresCanonRepository (integration)', () => {
         text: 'Grace precedes obedience.',
         r2Key: null,
         structureMap: { kind: 'none' },
+        editionId: 'ed_seed',
       };
       const hostProvider = new FakeIngestProvider(
         () => [{ claim: 'Grace precedes obedience.', quote: 'Grace precedes obedience.' }],
@@ -513,6 +534,7 @@ describe.skipIf(!DATABASE_URL)('PostgresCanonRepository (integration)', () => {
           text: `Grace precedes obedience ${i}.`,
           r2Key: null,
           structureMap: { kind: 'none' },
+          editionId: 'ed_seed',
         };
         const provider = new FakeIngestProvider(
           () => [{ claim: 'Grace precedes obedience.', quote: extra.text }],
@@ -572,6 +594,7 @@ describe.skipIf(!DATABASE_URL)('PostgresCanonRepository (integration)', () => {
       text: 'Grace precedes obedience. We are loved first. Obedience flows from being loved.',
       r2Key: null,
       structureMap: { kind: 'none' },
+      editionId: 'ed_seed',
     };
     const unrelatedSermon: Source = {
       id: 'rel-serm2',
@@ -582,6 +605,7 @@ describe.skipIf(!DATABASE_URL)('PostgresCanonRepository (integration)', () => {
       text: 'The empty seat is the assignment. Hospitality begins where comfort ends.',
       r2Key: null,
       structureMap: { kind: 'none' },
+      editionId: 'ed_seed',
     };
 
     it('surfaces a cluster sibling for a seed and excludes the seed itself', async () => {
@@ -665,9 +689,11 @@ describe.skipIf(!DATABASE_URL)('PostgresCanonRepository (integration)', () => {
       await repo.upsertFigure({ id: 'fig_hjh', slug: 'hak-ja-han', displayName: 'Hak Ja Han' });
       await repo.upsertWork({ id: 'work_csg', title: 'Cheon Seong Gyeong', figureId: 'fig_smm', tier: 'core' });
       await repo.upsertWork({ id: 'work_tm', title: 'True Mother Anthology', figureId: 'fig_hjh', tier: 'core' });
+      await repo.upsertEdition(mkTestEdition('ed_csg', 'work_csg'));
+      await repo.upsertEdition(mkTestEdition('ed_tm', 'work_tm'));
 
-      const srcCsg: Source = { ...sermon, id: 'src_csg', workId: 'work_csg' };
-      const srcTm: Source = { ...sermon, id: 'src_tm', workId: 'work_tm' };
+      const srcCsg: Source = { ...sermon, id: 'src_csg', editionId: 'ed_csg' };
+      const srcTm: Source = { ...sermon, id: 'src_tm', editionId: 'ed_tm' };
       await ingestSource(srcCsg, { provider, repository: repo });
       await ingestSource(srcTm, { provider, repository: repo });
 
@@ -691,15 +717,17 @@ describe.skipIf(!DATABASE_URL)('PostgresCanonRepository (integration)', () => {
       expect(await repo.searchByEmbedding(embedding!, 5, [])).toEqual([]);
     });
 
-    it('listWorks joins each Work to its Figure; listSourceIdsInWorks returns the Sources that belong to them', async () => {
+    it('listWorks joins each Work to its Figure; listSourceIdsInWorks resolves through Editions', async () => {
       await repo.upsertFigure({ id: 'fig_smm', slug: 'sun-myung-moon', displayName: 'Sun Myung Moon' });
       await repo.upsertWork({ id: 'work_a', title: 'A', figureId: 'fig_smm', tier: 'core' });
       await repo.upsertWork({ id: 'work_b', title: 'B', figureId: 'fig_smm', tier: 'extra' });
+      await repo.upsertEdition(mkTestEdition('ed_a', 'work_a'));
+      await repo.upsertEdition(mkTestEdition('ed_b', 'work_b'));
 
-      await repo.upsertSource({ ...sermon, id: 's_a', workId: 'work_a' });
-      await repo.upsertSource({ ...sermon, id: 's_b', workId: 'work_b' });
+      await repo.upsertSource({ ...sermon, id: 's_a', editionId: 'ed_a' });
+      await repo.upsertSource({ ...sermon, id: 's_b', editionId: 'ed_b' });
 
-      const listings = await repo.listWorks();
+      const listings = (await repo.listWorks()).filter((l) => l.work.id !== 'work_seed');
       expect(listings).toHaveLength(2);
       const a = listings.find((l) => l.work.id === 'work_a')!;
       expect(a.work.tier).toBe('core');
@@ -713,27 +741,46 @@ describe.skipIf(!DATABASE_URL)('PostgresCanonRepository (integration)', () => {
       expect(await repo.listSourceIdsInWorks([])).toEqual([]);
     });
 
-    it('listSourceRefsForBackfill + assignSourceToWork feed the one-time backfill (issue #54)', async () => {
-      // Two Sources land as unassigned (workId null — the state right after
-      // the ADR-0017 schema migration and before the backfill runs).
-      await repo.upsertSource({ ...sermon, id: 's_a' });
-      await repo.upsertSource({ ...sermon, id: 's_b' });
+    it('listSourceIdsInWorks unions Sources across a Work with two Editions (ADR-0018)', async () => {
+      await repo.upsertFigure({ id: 'fig_smm', slug: 'sun-myung-moon', displayName: 'Sun Myung Moon' });
+      await repo.upsertWork({ id: 'work_csg', title: 'CSG', figureId: 'fig_smm', tier: 'core' });
+      // The pre-ascension original + the 2013 revised — both under one Work.
+      await repo.upsertEdition(mkTestEdition('ed_pre', 'work_csg'));
+      await repo.upsertEdition(mkTestEdition('ed_2013', 'work_csg'));
+
+      await repo.upsertSource({ ...sermon, id: 's_pre_1', editionId: 'ed_pre' });
+      await repo.upsertSource({ ...sermon, id: 's_pre_2', editionId: 'ed_pre' });
+      await repo.upsertSource({ ...sermon, id: 's_2013_1', editionId: 'ed_2013' });
+
+      const ids = await repo.listSourceIdsInWorks(['work_csg']);
+      expect(new Set(ids)).toEqual(new Set(['s_pre_1', 's_pre_2', 's_2013_1']));
+    });
+
+    it('listSourceRefsForBackfill + assignSourceToEdition feed the Editions backfill (issue #60)', async () => {
       await repo.upsertFigure({ id: 'fig_smm', slug: 'sun-myung-moon', displayName: 'Sun Myung Moon' });
       await repo.upsertWork({ id: 'work_a', title: 'A', figureId: 'fig_smm', tier: 'core' });
+      await repo.upsertEdition(mkTestEdition('ed_a', 'work_a'));
+
+      // Two Sources land under ed_seed initially — the backfill re-routes
+      // 's_a' to its correct Edition (`ed_a`) via `assignSourceToEdition`.
+      await repo.upsertSource({ ...sermon, id: 's_a' });
+      await repo.upsertSource({ ...sermon, id: 's_b' });
 
       const refsBefore = await repo.listSourceRefsForBackfill();
       const before = refsBefore.filter((r) => r.id === 's_a' || r.id === 's_b');
-      expect(before.map((r) => r.workId).sort()).toEqual([null, null]);
+      // Both Sources fall through to the founding `ed_seed` Edition — that's
+      // the ADR-0018-shape "initial assignment" scenario the backfill fixes.
+      expect(before.map((r) => r.editionId).sort()).toEqual(['ed_seed', 'ed_seed']);
       // Lightweight ref — no `text` column leaks into the shape.
       expect(before[0]).not.toHaveProperty('text');
 
-      await repo.assignSourceToWork('s_a', 'work_a');
+      await repo.assignSourceToEdition('s_a', 'ed_a');
       const idsInWorkA = await repo.listSourceIdsInWorks(['work_a']);
       expect(idsInWorkA).toEqual(['s_a']);
 
       const refsAfter = await repo.listSourceRefsForBackfill();
       const after = refsAfter.find((r) => r.id === 's_a')!;
-      expect(after.workId).toBe('work_a');
+      expect(after.editionId).toBe('ed_a');
     });
 
     it('upsertFigure/upsertWork are idempotent (re-upsert updates in place, no dup PK)', async () => {
@@ -742,7 +789,7 @@ describe.skipIf(!DATABASE_URL)('PostgresCanonRepository (integration)', () => {
       await repo.upsertWork({ id: 'work_x', title: 'X', figureId: 'fig_smm', tier: 'core' });
       await repo.upsertWork({ id: 'work_x', title: 'X (revised)', figureId: 'fig_smm', tier: 'extra' });
 
-      const listings = await repo.listWorks();
+      const listings = (await repo.listWorks()).filter((l) => l.work.id !== 'work_seed');
       expect(listings).toHaveLength(1);
       expect(listings[0]!.work.title).toBe('X (revised)');
       expect(listings[0]!.work.tier).toBe('extra');
@@ -780,7 +827,7 @@ describe.skipIf(!DATABASE_URL)('PostgresCanonRepository (integration)', () => {
       expect(fetched?.language).toBe('en');
 
       // Source carries the FK; upsert + get round-trips the assignment.
-      await repo.upsertSource({ ...sermon, id: 's_csg_1', workId: 'work_csg', editionId: 'ed_csg_2013' });
+      await repo.upsertSource({ ...sermon, id: 's_csg_1', editionId: 'ed_csg_2013' });
       const src = await repo.getSource('s_csg_1');
       expect(src?.editionId).toBe('ed_csg_2013');
     });

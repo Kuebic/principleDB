@@ -170,6 +170,10 @@ export class InMemoryRepository implements CanonRepository {
     return edition ? { ...edition } : null;
   }
 
+  async listEditions(): Promise<Edition[]> {
+    return [...this.editions.values()].map((e) => ({ ...e }));
+  }
+
   async listWorks(): Promise<WorkWithFigure[]> {
     const out: WorkWithFigure[] = [];
     for (const work of this.works.values()) {
@@ -183,9 +187,17 @@ export class InMemoryRepository implements CanonRepository {
   async listSourceIdsInWorks(workIds: string[]): Promise<string[]> {
     if (workIds.length === 0) return [];
     const wanted = new Set(workIds);
+    // Work → Editions → Sources (ADR-0018 slice #61). A Work with two
+    // Editions unions both Editions' Sources — the port's Work-ids-in →
+    // Source-ids-out contract is unchanged.
+    const wantedEditions = new Set<string>();
+    for (const edition of this.editions.values()) {
+      if (wanted.has(edition.workId)) wantedEditions.add(edition.id);
+    }
+    if (wantedEditions.size === 0) return [];
     const out: string[] = [];
     for (const source of this.sources.values()) {
-      if (source.workId && wanted.has(source.workId)) out.push(source.id);
+      if (source.editionId && wantedEditions.has(source.editionId)) out.push(source.id);
     }
     return out;
   }
@@ -195,15 +207,8 @@ export class InMemoryRepository implements CanonRepository {
       id: s.id,
       author: s.author,
       title: s.title,
-      workId: s.workId ?? null,
       editionId: s.editionId ?? null,
     }));
-  }
-
-  async assignSourceToWork(sourceId: string, workId: string): Promise<void> {
-    const existing = this.sources.get(sourceId);
-    if (!existing) return;
-    this.sources.set(sourceId, { ...existing, workId });
   }
 
   async assignSourceToEdition(sourceId: string, editionId: string): Promise<void> {

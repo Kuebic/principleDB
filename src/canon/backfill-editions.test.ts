@@ -1,7 +1,11 @@
 // Backfill orchestrator over the pure `sourceToEdition` mapping (issue #60,
 // PRD #58, ADR-0018). Covers the acceptance-criteria properties: every Source
-// lands in exactly one Edition of its Work; a re-run is idempotent (no duplicate
-// Editions, assignments unchanged); a wrong prior assignment gets corrected.
+// lands in exactly one Edition of its Work; a re-run is idempotent (no
+// duplicate Editions, assignments unchanged); a wrong prior assignment gets
+// corrected. Post-#61 `Source.editionId` is required (non-null), so the
+// "initial assignment from null" scenario is gone — the assignment path is
+// exercised via a defensive re-run (a Source stamped with the wrong Edition
+// gets corrected).
 
 import { describe, expect, it } from 'vitest';
 import { InMemoryRepository } from './in-memory-repository';
@@ -20,7 +24,7 @@ import {
 } from './source-to-edition';
 import type { Source } from './types';
 
-function src(id: string, author: string, title: string, editionId?: string | null): Source {
+function src(id: string, author: string, title: string, editionId: string): Source {
   return {
     id,
     title,
@@ -30,21 +34,25 @@ function src(id: string, author: string, title: string, editionId?: string | nul
     text: 'body',
     r2Key: null,
     structureMap: { kind: 'none' },
-    editionId: editionId ?? null,
+    editionId,
   };
 }
 
+// Every founding Source starts with its *correct* Edition — the state the
+// live Canon has after the initial #60 backfill has run. The scenarios then
+// exercise idempotence (no-op re-run) and defensive re-assignment (a Source
+// mis-stamped with the wrong Edition gets corrected on the next pass).
 async function seedRepresentative() {
   const repo = new InMemoryRepository();
-  await repo.upsertSource(src('s1', 'SunMyungMoon-CSG', 'CSG — book1-01'));
-  await repo.upsertSource(src('s2', 'Sang Hun Lee', 'UT — 01'));
-  await repo.upsertSource(src('s3', 'Hak Ja Han Moon', 'TM — 1'));
-  await repo.upsertSource(src('s4', 'Sun Myung Moon', 'Cham Bumo Gyeong — CBG-00'));
-  await repo.upsertSource(src('s5', 'Sun Myung Moon', 'Pyeong Hwa Gyeong — PHG14-01'));
-  await repo.upsertSource(src('s6', 'Sun Myung Moon', "The Way Of God's Will — WOGW-01"));
-  await repo.upsertSource(src('s7', '01-the-principle-of-creation', 'Ch.1'));
-  await repo.upsertSource(src('s8', 'Damien Dunkley', "Discourse on True Mother's Revelations — Part 01"));
-  await repo.upsertSource(src('s9', 'Damien Dunkley', 'The Meaning of Special Grace'));
+  await repo.upsertSource(src('s1', 'SunMyungMoon-CSG', 'CSG — book1-01', EDITION_CSG));
+  await repo.upsertSource(src('s2', 'Sang Hun Lee', 'UT — 01', EDITION_UT));
+  await repo.upsertSource(src('s3', 'Hak Ja Han Moon', 'TM — 1', EDITION_TM));
+  await repo.upsertSource(src('s4', 'Sun Myung Moon', 'Cham Bumo Gyeong — CBG-00', EDITION_CBG));
+  await repo.upsertSource(src('s5', 'Sun Myung Moon', 'Pyeong Hwa Gyeong — PHG14-01', EDITION_PHG));
+  await repo.upsertSource(src('s6', 'Sun Myung Moon', "The Way Of God's Will — WOGW-01", EDITION_WOGW));
+  await repo.upsertSource(src('s7', '01-the-principle-of-creation', 'Ch.1', EDITION_DP));
+  await repo.upsertSource(src('s8', 'Damien Dunkley', "Discourse on True Mother's Revelations — Part 01", EDITION_DD_REVELATIONS));
+  await repo.upsertSource(src('s9', 'Damien Dunkley', 'The Meaning of Special Grace', EDITION_DD_SPECIAL_GRACE));
   return repo;
 }
 
@@ -54,13 +62,13 @@ async function editionForSource(repo: InMemoryRepository, sourceId: string): Pro
 }
 
 describe('backfillEditions', () => {
-  it('creates the 9 Editions and assigns every Source to its Edition', async () => {
+  it('creates the 9 Editions and leaves already-correct Source assignments unchanged', async () => {
     const repo = await seedRepresentative();
     const result = await backfillEditions(repo);
 
     expect(result.editionsUpserted).toBe(9);
-    expect(result.sourcesAssigned).toBe(9);
-    expect(result.sourcesUnchanged).toBe(0);
+    expect(result.sourcesAssigned).toBe(0);
+    expect(result.sourcesUnchanged).toBe(9);
 
     // Every seeded Edition is readable through the port.
     for (const e of BACKFILL_EDITIONS) {
@@ -72,7 +80,7 @@ describe('backfillEditions', () => {
       expect(fetched!.language).toBe('en');
     }
 
-    // Assignments — the 9 seeded rows land in their Editions.
+    // Assignments — the 9 seeded rows are in their Editions.
     expect(await editionForSource(repo, 's1')).toBe(EDITION_CSG);
     expect(await editionForSource(repo, 's2')).toBe(EDITION_UT);
     expect(await editionForSource(repo, 's3')).toBe(EDITION_TM);
@@ -112,7 +120,7 @@ describe('backfillEditions', () => {
     expect(await editionForSource(repo, 's_bad')).toBe(EDITION_CSG);
   });
 
-  it('after the run every Source has a non-null editionId (AC guarantee)', async () => {
+  it('every Source has a non-null editionId after the run (AC guarantee)', async () => {
     const repo = await seedRepresentative();
     await backfillEditions(repo);
     const refs = await repo.listSourceRefsForBackfill();

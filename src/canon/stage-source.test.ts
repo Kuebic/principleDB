@@ -26,6 +26,7 @@ const sermon: Source = {
   ].join('\n'),
   r2Key: null,
   structureMap: { kind: 'none' },
+  editionId: 'ed_seed',
 };
 
 describe('stageSource', () => {

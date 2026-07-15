@@ -24,6 +24,7 @@ const sermonA: Source = {
   text: 'Grace precedes obedience. We are loved first.',
   r2Key: null,
   structureMap: { kind: 'none' },
+  editionId: 'ed_seed',
 };
 
 const sermonB: Source = {
@@ -35,6 +36,7 @@ const sermonB: Source = {
   text: 'Grace precedes obedience here too. Distinct framing about grace and obedience comes next.',
   r2Key: null,
   structureMap: { kind: 'none' },
+  editionId: 'ed_seed',
 };
 
 describe('conservative dedup at ingest', () => {
@@ -226,6 +228,7 @@ describe('conservative dedup at ingest', () => {
       text: 'Grace precedes obedience. Faith without works is dead. Love your neighbor as yourself.',
       r2Key: null,
       structureMap: { kind: 'none' },
+      editionId: 'ed_seed',
     };
     const testSource: Source = {
       id: 'testB',
@@ -236,6 +239,7 @@ describe('conservative dedup at ingest', () => {
       text: 'Grace precedes obedience. Faith without works is dead. Love your neighbor as yourself. Grace precedes obedience again here too.',
       r2Key: null,
       structureMap: { kind: 'none' },
+      editionId: 'ed_seed',
     };
     const seedRepo = async () => {
       const repo = new InMemoryRepository();
@@ -296,6 +300,7 @@ describe('conservative dedup at ingest', () => {
       text: 'Grace precedes obedience.',
       r2Key: null,
       structureMap: { kind: 'none' },
+      editionId: 'ed_seed',
     };
     const bSource: Source = {
       id: 'backoffB',
@@ -306,6 +311,7 @@ describe('conservative dedup at ingest', () => {
       text: 'Grace precedes obedience here too.',
       r2Key: null,
       structureMap: { kind: 'none' },
+      editionId: 'ed_seed',
     };
     const repository = new InMemoryRepository();
     const providerA = new FakeIngestProvider(
@@ -361,6 +367,7 @@ describe('conservative dedup at ingest', () => {
       text: seedText,
       r2Key: null,
       structureMap: { kind: 'none' },
+      editionId: 'ed_seed',
     };
     const bSource: Source = {
       id: 'poolB',
@@ -371,6 +378,7 @@ describe('conservative dedup at ingest', () => {
       text: seedText,
       r2Key: null,
       structureMap: { kind: 'none' },
+      editionId: 'ed_seed',
     };
     const repository = new InMemoryRepository();
     const seedClaims = Array.from({ length: 6 }, (_, i) => ({
@@ -419,6 +427,7 @@ describe('conservative dedup at ingest', () => {
       text: 'Grace precedes obedience first.',
       r2Key: null,
       structureMap: { kind: 'none' },
+      editionId: 'ed_seed',
     };
     const seedSourceA2: Source = {
       id: 'breakA2',
@@ -429,6 +438,7 @@ describe('conservative dedup at ingest', () => {
       text: 'Grace precedes obedience second.',
       r2Key: null,
       structureMap: { kind: 'none' },
+      editionId: 'ed_seed',
     };
     const bSource: Source = {
       id: 'breakB',
@@ -439,6 +449,7 @@ describe('conservative dedup at ingest', () => {
       text: 'Grace precedes obedience again.',
       r2Key: null,
       structureMap: { kind: 'none' },
+      editionId: 'ed_seed',
     };
     const repository = new InMemoryRepository();
     const seedA1 = new FakeIngestProvider(
@@ -523,6 +534,7 @@ describe('conservative dedup at ingest', () => {
       text: 'Grace precedes obedience. Faith without works is dead. Love your neighbor as yourself.',
       r2Key: null,
       structureMap: { kind: 'none' },
+      editionId: 'ed_seed',
     };
     const seedProvider = new FakeIngestProvider(() => [
       { claim: 'Grace precedes obedience.', quote: 'Grace precedes obedience.' },
@@ -552,6 +564,7 @@ describe('conservative dedup at ingest', () => {
       text: 'Grace precedes obedience. Faith without works is dead. Love your neighbor as yourself.',
       r2Key: null,
       structureMap: { kind: 'none' },
+      editionId: 'ed_seed',
     };
     const providerB = new FakeIngestProvider(
       () => [
@@ -603,6 +616,7 @@ describe('conservative dedup at ingest', () => {
       text: 'Grace precedes obedience. Faith without works is dead. Love your neighbor as yourself.',
       r2Key: null,
       structureMap: { kind: 'none' },
+      editionId: 'ed_seed',
     };
     await ingestSource(seed, { provider: seedProvider, repository });
 

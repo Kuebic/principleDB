@@ -72,7 +72,6 @@ describe('CanonRepository — Editions (in-memory)', () => {
       text: 'body',
       r2Key: null,
       structureMap: { kind: 'none' },
-      workId: 'work_csg',
       editionId: 'ed_csg_2013',
     };
     await repo.upsertSource(src);

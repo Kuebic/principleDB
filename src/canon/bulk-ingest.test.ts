@@ -21,6 +21,7 @@ function sermon(id: string, text: string): Source {
     text,
     r2Key: null,
     structureMap: { kind: 'none' },
+    editionId: 'ed_seed',
   };
 }
 

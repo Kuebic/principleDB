@@ -14,6 +14,7 @@ const sermon: Source = {
   text: 'Grace precedes obedience. We are loved first.',
   r2Key: null,
   structureMap: { kind: 'none' },
+  editionId: 'ed_seed',
 };
 
 async function seedDrift(): Promise<{

@@ -1,31 +1,20 @@
-// One-time backfill (issue #54, ADR-0017): stamps every existing Source
-// with its Work — no re-ingest, no re-distillation. A thin, idempotent shell
-// over the pure `sourceToWork` mapping.
+// One-time setup (issue #54, ADR-0017): upserts the founding Figures + Works.
+// The Source-to-Work assignment step this backfill originally ran was retired
+// in issue #61 when `Source.workId` was dropped in favour of Source → Edition →
+// Work; the Editions backfill (`backfillEditions`) now owns per-Source
+// assignment. This function stays as the Figure+Work seed — the Editions
+// backfill FK-depends on it, so operators still run `npm run backfill:works`
+// before `npm run backfill:editions` on a fresh DB.
 //
-// Idempotence properties this function guarantees:
-//   - Figures + Works are `upsertFigure` / `upsertWork` — same primary key
-//     replaces, so a second run doesn't multiply the row set.
-//   - Every Source is (re-)assigned to the Work `sourceToWork` computes;
-//     already-correct assignments are counted `sourcesUnchanged` and skip
-//     the UPDATE round-trip so a second run is nearly free and a mistaken
-//     assignment from a prior partial run is corrected on the next pass.
-//
-// Called from `scripts/backfill-works.ts` under `npm run backfill:works`;
-// exposed as a function so the in-memory tests exercise the same code path
-// the production script does.
+// Idempotence: Figures + Works are `upsertFigure` / `upsertWork` — same
+// primary key replaces, so a second run doesn't multiply the row set.
 
 import type { CanonRepository } from './ports';
-import {
-  BACKFILL_FIGURES,
-  BACKFILL_WORKS,
-  sourceToWork,
-} from './source-to-work';
+import { BACKFILL_FIGURES, BACKFILL_WORKS } from './source-to-work';
 
 export interface BackfillResult {
   figuresUpserted: number;
   worksUpserted: number;
-  sourcesAssigned: number;
-  sourcesUnchanged: number;
 }
 
 export async function backfillWorks(repo: CanonRepository): Promise<BackfillResult> {
@@ -35,24 +24,8 @@ export async function backfillWorks(repo: CanonRepository): Promise<BackfillResu
   for (const work of BACKFILL_WORKS) {
     await repo.upsertWork(work);
   }
-
-  const refs = await repo.listSourceRefsForBackfill();
-  let sourcesAssigned = 0;
-  let sourcesUnchanged = 0;
-  for (const ref of refs) {
-    const workId = sourceToWork(ref);
-    if (ref.workId === workId) {
-      sourcesUnchanged++;
-      continue;
-    }
-    await repo.assignSourceToWork(ref.id, workId);
-    sourcesAssigned++;
-  }
-
   return {
     figuresUpserted: BACKFILL_FIGURES.length,
     worksUpserted: BACKFILL_WORKS.length,
-    sourcesAssigned,
-    sourcesUnchanged,
   };
 }

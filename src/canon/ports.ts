@@ -61,16 +61,15 @@ export interface WorkWithFigure {
   figure: Figure;
 }
 
-// Lightweight Source ref for the backfill (issues #54, #60). `text` +
+// Lightweight Source ref for the backfill (issue #60). `text` +
 // `structure_map` are deliberately omitted so 615 rows (or more) fit
-// comfortably in memory during the one-time assignment pass. Both `workId`
-// (ADR-0017 slice) and `editionId` (ADR-0018 slice) ride on this ref so each
-// backfill can detect its own "already assigned" case for idempotence.
+// comfortably in memory during the one-time assignment pass. `editionId`
+// rides on this ref so the backfill can detect its own "already assigned"
+// case for idempotence.
 export interface SourceRefForBackfill {
   id: string;
   author: string;
   title: string;
-  workId: string | null;
   editionId: string | null;
 }
 
@@ -142,32 +141,37 @@ export interface CanonRepository {
   // Edition layer (ADR-0018, PRD #58). `upsertEdition` seeds one Edition per
   // published recension of a Work; the backfill slice (#60) then reassigns
   // Sources through `assignSourceToEdition`. `getEdition` is the minimal
-  // readback for the schema slice — later slices resolve Work → Editions →
-  // Sources directly. Both idempotent by primary key so re-running is safe.
+  // readback; `listEditions` feeds the citation-side resolution path
+  // (Source.editionId → Edition.workId → Work + Figure) now that
+  // `Source.workId` has been retired (issue #61). Idempotent by primary key
+  // so re-running is safe.
   upsertEdition(edition: Edition): Promise<void>;
   getEdition(id: string): Promise<Edition | null>;
+  listEditions(): Promise<Edition[]>;
   // Every Work with its Figure pre-joined — feeds the web picker + the
   // `list_works` MCP tool.
   listWorks(): Promise<WorkWithFigure[]>;
   // Resolves a set of Work ids to the Source ids that belong to them. The
   // scope resolver uses this to compute the concrete pre-filter set from a
-  // Work/Figure scope. Returns [] for an empty input.
+  // Work/Figure scope. Returns [] for an empty input. Post-issue #61 the
+  // resolution runs through Editions (Work → Editions → Sources) — a Work
+  // with two Editions returns the union of both Editions' Sources — while
+  // the port's Work-ids-in → Source-ids-out contract stays unchanged, so
+  // `resolveScope` and `searchByEmbedding`'s pre-filter need no signature
+  // change.
   listSourceIdsInWorks(workIds: string[]): Promise<string[]>;
-  // Lightweight rows the one-time backfill (issue #54, ADR-0017) reads to
-  // assign every existing Source to its Work. Deliberately omits `text` and
-  // `structure_map` so the whole Canon fits in memory during the assignment
-  // pass. `workId` is included so a re-run can be logged as "already
-  // assigned" — idempotence is a first-class property of the script.
+  // Lightweight rows the one-time backfill (issue #60, ADR-0018) reads to
+  // assign every existing Source to its Edition. Deliberately omits `text`
+  // and `structure_map` so the whole Canon fits in memory during the
+  // assignment pass. `editionId` is included so a re-run can be logged as
+  // "already assigned" — idempotence is a first-class property of the
+  // script.
   listSourceRefsForBackfill(): Promise<SourceRefForBackfill[]>;
-  // Narrow UPDATE (issue #54): sets `source.work_id` without rewriting the
-  // rest of the row. Backs the backfill and future ingest's Work-assignment
-  // step — a full `upsertSource` would rewrite the (potentially large) text
-  // column for no reason.
-  assignSourceToWork(sourceId: string, workId: string): Promise<void>;
   // Narrow UPDATE (issue #60, PRD #58): sets `source.edition_id` without
-  // rewriting the text column, same reason as `assignSourceToWork`. Backs
-  // the Editions backfill (`scripts/backfill-editions.ts`) and future ingest
-  // paths that assign an Edition at write time.
+  // rewriting the text column. Backs the Editions backfill
+  // (`scripts/backfill-editions.ts`) and future ingest paths that assign an
+  // Edition at write time — a full `upsertSource` would rewrite the
+  // (potentially large) text column for no reason.
   assignSourceToEdition(sourceId: string, editionId: string): Promise<void>;
   // `scopedSourceIds`, when provided, restricts the search to Principles
   // whose home Source is in the set — applied as a SQL pre-filter *before*

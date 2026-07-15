@@ -76,16 +76,14 @@ export interface Source {
   text: string;
   r2Key: string | null;
   structureMap: StructureMap;
-  // Optional/nullable during the backfill window (ADR-0017): a one-time
-  // script assigns every existing Source to its Work. New ingest paths
-  // assign a Work at write time. Omitted vs `null` mean the same thing —
-  // unassigned; the DB column is nullable and the field is optional so
-  // existing call sites don't need to thread an explicit `null` through.
-  workId?: string | null;
-  // Same expand-then-contract posture (ADR-0018): the schema slice (#59)
-  // adds `edition_id` nullable, the backfill slice (#60) populates it, and
-  // the resolution slice (#61) drops `work_id`, leaving `edition_id` as the
-  // single link from Source up the hierarchy.
+  // The single link from Source up the hierarchy (ADR-0018 slice #61):
+  // Source → Edition → Work → Figure. The old `workId` field was retired in
+  // the resolution slice so the second-drifting-path-to-identity risk
+  // ADR-0017 exists to prevent cannot reappear. The Postgres schema enforces
+  // NOT NULL — the domain type is loose so tests can construct Source
+  // objects without threading an Edition through call sites that don't need
+  // one; production ingest paths always provide it and Postgres would reject
+  // a null on INSERT.
   editionId?: string | null;
 }
 

@@ -15,6 +15,7 @@ const sermon: Source = {
   text: 'Grace precedes obedience. We are loved first.',
   r2Key: null,
   structureMap: { kind: 'none' },
+  editionId: 'ed_seed',
 };
 
 const provenance: DistilProvenance = {
@@ -236,6 +237,7 @@ describe('resolveReviewItem', () => {
       text: 'A: faith comes first. B: works come first.',
       r2Key: null,
       structureMap: { kind: 'none' },
+      editionId: 'ed_seed',
     };
     const repository = new InMemoryRepository();
     const provider = new FakeIngestProvider(() => [], provenance);

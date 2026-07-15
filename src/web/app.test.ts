@@ -3,8 +3,21 @@ import { FakeIngestProvider } from '../canon/fake-provider';
 import { ingestSource } from '../canon/ingest';
 import { InMemoryRepository } from '../canon/in-memory-repository';
 import type { SearchPrinciplesResponse } from '../mcp/search-principles-tool';
-import type { Source } from '../canon/types';
+import type { Edition, Source } from '../canon/types';
 import { createWebApp } from './app';
+
+function mkEdition(id: string, workId: string): Edition {
+  return {
+    id,
+    workId,
+    label: id,
+    recension: 'ffwpu-post-2012',
+    language: 'en',
+    publishedDate: null,
+    publisher: null,
+    notes: null,
+  };
+}
 
 const sermon: Source = {
   id: 'serm1',
@@ -15,6 +28,7 @@ const sermon: Source = {
   text: 'Grace precedes obedience. We are loved first.',
   r2Key: null,
   structureMap: { kind: 'none' },
+  editionId: 'ed_seed',
 };
 
 function fixtureDeps(): {
@@ -145,8 +159,11 @@ describe('GET / — URL-param scope for Work/Figure filtering (Slice W57, ADR-00
     await repository.upsertWork({ id: 'work_csg', title: 'Cheon Seong Gyeong', figureId: 'fig_smm', tier: 'core' });
     await repository.upsertWork({ id: 'work_tm', title: 'True Mother Anthology', figureId: 'fig_hjh', tier: 'core' });
     await repository.upsertWork({ id: 'work_extra', title: 'Later Speeches', figureId: 'fig_hjh', tier: 'extra' });
+    await repository.upsertEdition(mkEdition('ed_csg', 'work_csg'));
+    await repository.upsertEdition(mkEdition('ed_tm', 'work_tm'));
+    await repository.upsertEdition(mkEdition('ed_extra', 'work_extra'));
 
-    const mkSource = (id: string, workId: string, label: string): Source => ({
+    const mkSource = (id: string, editionId: string, label: string): Source => ({
       id,
       title: `${label} chapter`,
       author: 'ingest-slug-should-not-surface',
@@ -155,11 +172,11 @@ describe('GET / — URL-param scope for Work/Figure filtering (Slice W57, ADR-00
       text: `Grace shines through ${label}.`,
       r2Key: null,
       structureMap: { kind: 'none' },
-      workId,
+      editionId,
     });
-    await ingestSource(mkSource('s_csg', 'work_csg', 'CSG'), deps);
-    await ingestSource(mkSource('s_tm', 'work_tm', 'TM Anthology'), deps);
-    await ingestSource(mkSource('s_extra', 'work_extra', 'Later Speeches'), deps);
+    await ingestSource(mkSource('s_csg', 'ed_csg', 'CSG'), deps);
+    await ingestSource(mkSource('s_tm', 'ed_tm', 'TM Anthology'), deps);
+    await ingestSource(mkSource('s_extra', 'ed_extra', 'Later Speeches'), deps);
 
     const app = createWebApp(deps);
     return { deps, app };
@@ -274,6 +291,7 @@ describe('GET /api/quotes — extra Sources per Principle (Slice T2, #65, PRD #6
       text: 'Grace precedes obedience.',
       r2Key: null,
       structureMap: { kind: 'none' },
+      editionId: 'ed_seed',
     };
     await ingestSource(host, deps);
 
@@ -287,6 +305,7 @@ describe('GET /api/quotes — extra Sources per Principle (Slice T2, #65, PRD #6
         text: `Grace precedes obedience ${i}.`,
         r2Key: null,
         structureMap: { kind: 'none' },
+        editionId: 'ed_seed',
       };
       await ingestSource(companion, deps);
     }
@@ -346,6 +365,7 @@ describe('GET /api/quotes — extra Sources per Principle (Slice T2, #65, PRD #6
     const deps = { provider, repository };
     await repository.upsertFigure({ id: 'fig_smm', slug: 'sun-myung-moon', displayName: 'Sun Myung Moon' });
     await repository.upsertWork({ id: 'work_csg', title: 'Cheon Seong Gyeong', figureId: 'fig_smm', tier: 'core' });
+    await repository.upsertEdition(mkEdition('ed_csg', 'work_csg'));
     await ingestSource(
       {
         id: 'host',
@@ -356,7 +376,7 @@ describe('GET /api/quotes — extra Sources per Principle (Slice T2, #65, PRD #6
         text: 'Grace precedes obedience.',
         r2Key: null,
         structureMap: { kind: 'none' },
-        workId: 'work_csg',
+        editionId: 'ed_csg',
       },
       deps,
     );
@@ -370,7 +390,7 @@ describe('GET /api/quotes — extra Sources per Principle (Slice T2, #65, PRD #6
         text: 'Grace precedes obedience too.',
         r2Key: null,
         structureMap: { kind: 'none' },
-        workId: 'work_csg',
+        editionId: 'ed_csg',
       },
       deps,
     );

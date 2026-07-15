@@ -145,6 +145,7 @@ const sermon: Source = {
   text: 'Grace precedes obedience. We are loved before we obey.',
   r2Key: null,
   structureMap: { kind: 'none' },
+  editionId: 'ed_seed',
 };
 
 describe('admit', () => {

@@ -87,15 +87,14 @@ export const source = pgTable('source', {
   text: text('text').notNull(),
   r2Key: text('r2_key'),
   structureMap: jsonb('structure_map').$type<StructureMap>().notNull(),
-  // Nullable during the backfill window (ADR-0017): the migration adds the
-  // column, then a one-time script assigns every existing Source to its
-  // Work. New ingest paths must assign a Work at write time.
-  workId: text('work_id').references(() => work.id, { onDelete: 'restrict' }),
-  // Same expand-then-contract posture (ADR-0018, PRD #58): the schema slice
-  // (#59) adds this nullable, the backfill slice (#60) populates it, and the
-  // resolution slice (#61) drops `work_id`, leaving `edition_id` as the
-  // single link from Source up the hierarchy.
-  editionId: text('edition_id').references(() => edition.id, { onDelete: 'restrict' }),
+  // The single link from Source up the hierarchy (ADR-0018 slice #61):
+  // `Source → Edition → Work → Figure`. The resolution slice dropped the
+  // old `work_id` column and made this NOT NULL, so a Source's Work is
+  // uniquely determined by its Edition — removing the second-drifting-path-
+  // to-identity risk ADR-0017 exists to prevent.
+  editionId: text('edition_id')
+    .notNull()
+    .references(() => edition.id, { onDelete: 'restrict' }),
 });
 
 export const principle = pgTable(

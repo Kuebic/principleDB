@@ -14,6 +14,7 @@ const sermon: Source = {
   text: 'Grace precedes obedience.',
   r2Key: null,
   structureMap: { kind: 'none' },
+  editionId: 'ed_seed',
 };
 
 describe('listReviewQueueTool', () => {

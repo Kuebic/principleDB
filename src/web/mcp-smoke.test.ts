@@ -31,6 +31,7 @@ const sermon: Source = {
   text: 'Grace precedes obedience. We are loved first.',
   r2Key: null,
   structureMap: { kind: 'none' },
+  editionId: 'ed_seed',
 };
 
 describe('CI smoke test — real HTTP MCP client against /mcp (ADR-0015)', () => {

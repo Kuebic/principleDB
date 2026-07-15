@@ -28,6 +28,7 @@ const sermonA: Source = {
   text: 'Grace precedes obedience. We are loved first.',
   r2Key: null,
   structureMap: { kind: 'none' },
+  editionId: 'ed_seed',
 };
 
 const sermonB: Source = {
@@ -39,6 +40,7 @@ const sermonB: Source = {
   text: 'Grace precedes obedience here too. Distinct framing about grace and obedience comes next.',
   r2Key: null,
   structureMap: { kind: 'none' },
+  editionId: 'ed_seed',
 };
 
 describe('dedupStagedSource', () => {

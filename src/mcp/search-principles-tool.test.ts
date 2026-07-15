@@ -2,7 +2,7 @@ import { describe, expect, it } from 'vitest';
 import { FakeIngestProvider } from '../canon/fake-provider';
 import { ingestSource } from '../canon/ingest';
 import { InMemoryRepository } from '../canon/in-memory-repository';
-import type { Source } from '../canon/types';
+import type { Edition, Source } from '../canon/types';
 import { searchPrinciplesTool } from './search-principles-tool';
 
 const sermon: Source = {
@@ -14,7 +14,26 @@ const sermon: Source = {
   text: 'Grace precedes obedience. We are loved first.',
   r2Key: null,
   structureMap: { kind: 'none' },
+  editionId: 'ed_seed',
 };
+
+// Seed the founding Figure/Work/Edition an ingest lands under so the
+// citation-side Source → Edition → Work resolution has something to hit.
+// Tests that need a scoped Canon call `seedScopedCanon` instead.
+async function seedFoundingEdition(repository: InMemoryRepository): Promise<void> {
+  await repository.upsertFigure({ id: 'fig_seed', slug: 'seed', displayName: 'Seed' });
+  await repository.upsertWork({ id: 'work_seed', title: 'Seed', figureId: 'fig_seed', tier: 'core' });
+  await repository.upsertEdition({
+    id: 'ed_seed',
+    workId: 'work_seed',
+    label: 'Seed',
+    recension: 'ffwpu-post-2012',
+    language: 'en',
+    publishedDate: null,
+    publisher: null,
+    notes: null,
+  });
+}
 
 // A miniature Canon that mirrors the ADR-0017 core-vs-extra split so scope
 // semantics can be exercised without a real corpus. Three Works: two core
@@ -36,7 +55,12 @@ async function seedScopedCanon(): Promise<{
   await repository.upsertWork({ id: 'work_tm', title: 'True Mother Anthology', figureId: 'fig_hjh', tier: 'core' });
   await repository.upsertWork({ id: 'work_extra', title: 'Later Speeches', figureId: 'fig_hjh', tier: 'extra' });
 
-  const mkSource = (id: string, workId: string, workLabel: string): Source => ({
+  // One Edition per founding Work — matches the real Canon shape post-#61.
+  await repository.upsertEdition(mkEdition('ed_csg', 'work_csg'));
+  await repository.upsertEdition(mkEdition('ed_tm', 'work_tm'));
+  await repository.upsertEdition(mkEdition('ed_extra', 'work_extra'));
+
+  const mkSource = (id: string, editionId: string, workLabel: string): Source => ({
     id,
     title: `${workLabel} chapter`,
     author: 'ingest-slug-should-not-surface',
@@ -45,17 +69,30 @@ async function seedScopedCanon(): Promise<{
     text: `Grace shines through ${workLabel}.`,
     r2Key: null,
     structureMap: { kind: 'none' },
-    workId,
+    editionId,
   });
 
-  const csg = mkSource('s_csg', 'work_csg', 'CSG');
-  const tm = mkSource('s_tm', 'work_tm', 'TM Anthology');
-  const extra = mkSource('s_extra', 'work_extra', 'Later Speeches');
+  const csg = mkSource('s_csg', 'ed_csg', 'CSG');
+  const tm = mkSource('s_tm', 'ed_tm', 'TM Anthology');
+  const extra = mkSource('s_extra', 'ed_extra', 'Later Speeches');
 
   for (const s of [csg, tm, extra]) {
     await ingestSource(s, { provider, repository });
   }
   return { provider, repository };
+}
+
+function mkEdition(id: string, workId: string): Edition {
+  return {
+    id,
+    workId,
+    label: id,
+    recension: 'ffwpu-post-2012',
+    language: 'en',
+    publishedDate: null,
+    publisher: null,
+    notes: null,
+  };
 }
 
 describe('searchPrinciplesTool', () => {
@@ -103,6 +140,7 @@ describe('searchPrinciplesTool', () => {
           { offset: 22, page: 2 },
         ],
       },
+      editionId: 'ed_seed',
     };
     const repository = new InMemoryRepository();
     const provider = new FakeIngestProvider(() => [
@@ -129,6 +167,7 @@ describe('searchPrinciplesTool', () => {
           { offset: 20, page: 2 },
         ],
       },
+      editionId: 'ed_seed',
     };
     const repository = new InMemoryRepository();
     const provider = new FakeIngestProvider(() => [

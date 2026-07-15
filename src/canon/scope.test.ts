@@ -1,11 +1,26 @@
 // resolveScope — shared source-filtering resolver over the CanonRepository
 // port (ADR-0017). Covers the semantics both surfaces (web + MCP) share:
 // unscoped ⇒ all core Works, Figures expand to Works, extras are opt-in.
+// Post-#61 the resolver still yields the same Work-ids/Source-ids sets, but
+// resolution runs through Editions internally (Work → Editions → Sources).
 
 import { describe, expect, it } from 'vitest';
 import { InMemoryRepository } from './in-memory-repository';
 import { resolveScope } from './scope';
-import type { Source } from './types';
+import type { Edition, Source } from './types';
+
+function mkEdition(id: string, workId: string): Edition {
+  return {
+    id,
+    workId,
+    label: id,
+    recension: 'ffwpu-post-2012',
+    language: 'en',
+    publishedDate: null,
+    publisher: null,
+    notes: null,
+  };
+}
 
 async function seed() {
   const repo = new InMemoryRepository();
@@ -20,7 +35,13 @@ async function seed() {
   // A future addition — landed as `extra`, so unscoped searches skip it.
   await repo.upsertWork({ id: 'work_extra', title: 'Later Speeches', figureId: 'fig_hjh', tier: 'extra' });
 
-  const src = (id: string, workId: string): Source => ({
+  await repo.upsertEdition(mkEdition('ed_csg', 'work_csg'));
+  await repo.upsertEdition(mkEdition('ed_dp', 'work_dp'));
+  await repo.upsertEdition(mkEdition('ed_tm', 'work_tm'));
+  await repo.upsertEdition(mkEdition('ed_ut', 'work_ut'));
+  await repo.upsertEdition(mkEdition('ed_extra', 'work_extra'));
+
+  const src = (id: string, editionId: string): Source => ({
     id,
     title: id,
     author: 'x',
@@ -29,14 +50,14 @@ async function seed() {
     text: 'body',
     r2Key: null,
     structureMap: { kind: 'none' },
-    workId,
+    editionId,
   });
-  await repo.upsertSource(src('s_csg_1', 'work_csg'));
-  await repo.upsertSource(src('s_csg_2', 'work_csg'));
-  await repo.upsertSource(src('s_dp_1', 'work_dp'));
-  await repo.upsertSource(src('s_tm_1', 'work_tm'));
-  await repo.upsertSource(src('s_ut_1', 'work_ut'));
-  await repo.upsertSource(src('s_extra_1', 'work_extra'));
+  await repo.upsertSource(src('s_csg_1', 'ed_csg'));
+  await repo.upsertSource(src('s_csg_2', 'ed_csg'));
+  await repo.upsertSource(src('s_dp_1', 'ed_dp'));
+  await repo.upsertSource(src('s_tm_1', 'ed_tm'));
+  await repo.upsertSource(src('s_ut_1', 'ed_ut'));
+  await repo.upsertSource(src('s_extra_1', 'ed_extra'));
   return repo;
 }
 
