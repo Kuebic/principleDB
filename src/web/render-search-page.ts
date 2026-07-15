@@ -113,10 +113,9 @@ function renderHit(hit: SearchHitResponse): string {
   const attribution = figureName
     ? `<i>${escapeHtml(workTitle)}</i> &middot; ${escapeHtml(figureName)}`
     : `<i>${escapeHtml(workTitle)}</i>`;
-  // Multi-attestation reveal control (issue #64, PRD #63). Rendered only when
-  // more than one Source voices this Principle. Inert in this ticket — the
-  // click handler + panel wiring lands in T3 (#66). Placed beneath the lead
-  // blockquote/meta and above the (conceptually separate) related expander.
+  // Multi-attestation reveal (issue #64, PRD #63). Rendered only when more
+  // than one Source voices this Principle; the panel fetch + click handler
+  // land in a follow-up slice, so the button is inert here on purpose.
   const extras = hit.quoteCount > 1
     ? `<button type="button" class="more-sources"
       data-expander="quotes"
