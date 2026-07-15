@@ -21,6 +21,7 @@
     "backfill:editions": "tsx scripts/backfill-editions.ts",
     "doctor": "tsx bin/principledb-doctor.ts",
     "db:migrate": "tsx bin/principledb-migrate.ts",
+    "db:recover-editions": "tsx scripts/recover-editions-migration.ts",
     "typecheck": "tsc --noEmit",
     "test": "vitest run --passWithNoTests",
     "db:generate": "drizzle-kit generate"
