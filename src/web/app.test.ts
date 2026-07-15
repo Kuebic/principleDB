@@ -253,8 +253,6 @@ describe('GET /api/quotes — extra Sources per Principle (Slice T2, #65, PRD #6
   // host Source distils the claim; each companion re-states it and dedup
   // attaches the companion's Quote to the same Principle. Extras = quotes[1..].
   async function seedMultiQuotePrinciple(extras: number): Promise<{
-    repository: InMemoryRepository;
-    provider: FakeIngestProvider;
     app: ReturnType<typeof createWebApp>;
     principleId: string;
   }> {
@@ -297,7 +295,7 @@ describe('GET /api/quotes — extra Sources per Principle (Slice T2, #65, PRD #6
     const search = await app.request('/api/search?q=grace');
     const searchBody = (await search.json()) as SearchPrinciplesResponse;
     const principleId = searchBody.hits[0]!.principleId;
-    return { repository, provider, app, principleId };
+    return { app, principleId };
   }
 
   it('offset=0 returns the first 3 extras (skipping the lead) and hasMore when more remain', async () => {
