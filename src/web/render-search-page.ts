@@ -41,6 +41,7 @@ export function renderSearchPage(options: RenderSearchPageOptions = {}): string 
         autocomplete="off" autofocus />
       <button type="submit">Search</button>
     </form>
+    <a class="connect-link" href="/connect">connect your AI &rarr;</a>
   </header>
   ${results}
   <footer class="foot">
@@ -127,6 +128,7 @@ a:hover { text-decoration: underline; }
 .topbar { display: flex; align-items: center; gap: 14px; padding: 8px 2px 20px; }
 .brand { font-weight: 700; font-size: 18px; }
 .brand small { color: var(--ink-faint); font-weight: 500; }
+.connect-link { font-size: 13px; font-weight: 600; white-space: nowrap; }
 .searchbox { flex: 1; display: flex; align-items: center; gap: 10px;
   background: var(--card); border: 1px solid var(--line); border-radius: 999px;
   padding: 6px 6px 6px 16px; }
