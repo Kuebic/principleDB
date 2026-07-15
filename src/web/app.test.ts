@@ -6,11 +6,11 @@ import type { SearchPrinciplesResponse } from '../mcp/search-principles-tool';
 import type { Edition, Source } from '../canon/types';
 import { createWebApp } from './app';
 
-function mkEdition(id: string, workId: string): Edition {
+function mkEdition(id: string, workId: string, label = id): Edition {
   return {
     id,
     workId,
-    label: id,
+    label,
     recension: 'ffwpu-post-2012',
     language: 'en',
     publishedDate: null,
@@ -365,7 +365,7 @@ describe('GET /api/quotes — extra Sources per Principle (Slice T2, #65, PRD #6
     const deps = { provider, repository };
     await repository.upsertFigure({ id: 'fig_smm', slug: 'sun-myung-moon', displayName: 'Sun Myung Moon' });
     await repository.upsertWork({ id: 'work_csg', title: 'Cheon Seong Gyeong', figureId: 'fig_smm', tier: 'core' });
-    await repository.upsertEdition({ ...mkEdition('ed_csg', 'work_csg'), label: '2013 Revised' });
+    await repository.upsertEdition(mkEdition('ed_csg', 'work_csg', '2013 Revised'));
     await ingestSource(
       {
         id: 'host',

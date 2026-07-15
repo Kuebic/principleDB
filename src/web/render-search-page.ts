@@ -112,14 +112,13 @@ function renderHit(hit: SearchHitResponse): string {
   // "Cheon Seong Gyeong — 2013 Revised" — so a reader never confuses a
   // contested recension for neutral scripture.
   const workTitle = hit.source.work?.title ?? hit.source.title;
-  const editionLabel = hit.source.edition?.label ?? '';
-  const workWithEdition = editionLabel
-    ? `<i>${escapeHtml(workTitle)}</i> &mdash; ${escapeHtml(editionLabel)}`
-    : `<i>${escapeHtml(workTitle)}</i>`;
-  const figureName = hit.source.figure?.displayName ?? '';
-  const attribution = figureName
-    ? `${workWithEdition} &middot; ${escapeHtml(figureName)}`
-    : workWithEdition;
+  const editionSuffix = hit.source.edition
+    ? ` &mdash; ${escapeHtml(hit.source.edition.label)}`
+    : '';
+  const figureSuffix = hit.source.figure
+    ? ` &middot; ${escapeHtml(hit.source.figure.displayName)}`
+    : '';
+  const attribution = `<i>${escapeHtml(workTitle)}</i>${editionSuffix}${figureSuffix}`;
   // Multi-attestation reveal (issue #64, PRD #63; wired in #66). `data-total-
   // extras` snapshots the initial count so the client can decrement the label
   // as batches load without re-parsing it out of the visible text.

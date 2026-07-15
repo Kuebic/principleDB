@@ -36,8 +36,7 @@ export async function buildWorkFigureResolver(
       const edition = source.editionId ? editionsById.get(source.editionId) : undefined;
       if (!edition) return null;
       const wf = worksByWorkId.get(edition.workId);
-      if (!wf) return null;
-      return { work: wf.work, figure: wf.figure, edition };
+      return wf ? { ...wf, edition } : null;
     },
   };
 }

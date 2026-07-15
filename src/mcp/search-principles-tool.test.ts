@@ -64,11 +64,11 @@ async function seedScopedCanon(): Promise<{
   return { provider, repository };
 }
 
-function mkEdition(id: string, workId: string, label?: string): Edition {
+function mkEdition(id: string, workId: string, label = id): Edition {
   return {
     id,
     workId,
-    label: label ?? id,
+    label,
     recension: 'ffwpu-post-2012',
     language: 'en',
     publishedDate: null,
