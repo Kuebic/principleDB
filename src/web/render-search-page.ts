@@ -56,11 +56,13 @@ export function renderSearchPage(options: RenderSearchPageOptions = {}): string 
   <header class="topbar">
     <div class="brand">principleDB <small>· the public Canon search</small></div>
     <form class="searchbox" method="get" action="/">
-      <label for="q" class="visually-hidden">Search the Canon</label>
-      <input id="q" name="q" type="search" value="${escapeAttribute(query)}"
-        placeholder="Type a thought — e.g. why does love need someone to receive it?"
-        autocomplete="off" autofocus />
-      <button type="submit">Search</button>
+      <div class="search-row">
+        <label for="q" class="visually-hidden">Search the Canon</label>
+        <input id="q" name="q" type="search" value="${escapeAttribute(query)}"
+          placeholder="Type a thought — e.g. why does love need someone to receive it?"
+          autocomplete="off" autofocus />
+        <button type="submit">Search</button>
+      </div>
       ${picker}
     </form>
     <a class="connect-link" href="/connect">connect your AI &rarr;</a>
@@ -220,15 +222,17 @@ a { color: var(--accent); text-decoration: none; }
 a:hover { text-decoration: underline; }
 .wrap { max-width: 880px; margin: 0 auto; padding: 24px 20px 80px; }
 .visually-hidden { position: absolute; width: 1px; height: 1px; overflow: hidden; clip: rect(0 0 0 0); }
-.topbar { display: flex; align-items: center; gap: 14px; padding: 8px 2px 20px; }
-.brand { font-weight: 700; font-size: 18px; }
+.topbar { display: flex; align-items: flex-start; gap: 14px; padding: 8px 2px 20px; }
+.brand { font-weight: 700; font-size: 18px; padding-top: 8px; }
 .brand small { color: var(--ink-faint); font-weight: 500; }
-.connect-link { font-size: 13px; font-weight: 600; white-space: nowrap; }
-.searchbox { flex: 1; display: flex; align-items: center; gap: 10px;
+.connect-link { font-size: 13px; font-weight: 600; white-space: nowrap; padding-top: 10px; }
+/* The form is a vertical stack: a pill row on top, the picker as a shelf below. */
+.searchbox { flex: 1; display: flex; flex-direction: column; gap: 8px; min-width: 0; }
+.search-row { display: flex; align-items: center; gap: 10px;
   background: var(--card); border: 1px solid var(--line); border-radius: 999px;
   padding: 6px 6px 6px 16px; }
-.searchbox input { border: 0; outline: 0; flex: 1; font-size: 15px; background: transparent; color: var(--ink); }
-.searchbox button { border: 0; background: var(--accent); color: white; padding: 8px 14px;
+.search-row input { border: 0; outline: 0; flex: 1; min-width: 0; font-size: 15px; background: transparent; color: var(--ink); }
+.search-row button { border: 0; background: var(--accent); color: white; padding: 8px 14px;
   border-radius: 999px; font-weight: 600; cursor: pointer; }
 .lead { font-family: var(--serif); font-size: 20px; color: var(--ink-soft); margin: 6px 2px 18px; }
 .lead b { color: var(--ink); font-weight: 600; }
@@ -251,7 +255,7 @@ a:hover { text-decoration: underline; }
 .related .r:last-child { border-bottom: 0; }
 .related .r a { color: var(--accent); }
 .empty-state { color: var(--ink-soft); font-family: var(--serif); font-size: 17px; padding: 12px 2px; }
-.picker { flex-basis: 100%; margin-top: 10px; background: var(--card); border: 1px solid var(--line);
+.picker { width: 100%; background: var(--card); border: 1px solid var(--line);
   border-radius: 10px; font-size: 14px; }
 .picker > summary { list-style: none; cursor: pointer; padding: 8px 14px; color: var(--ink-soft);
   font-weight: 600; user-select: none; }
