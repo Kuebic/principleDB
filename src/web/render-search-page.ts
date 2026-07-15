@@ -17,7 +17,7 @@
 // resolves the scope, and calls the core search directly (ADR-0015).
 
 import type { WorkWithFigure } from '../canon/ports';
-import type { Scope } from '../canon/scope';
+import { pickWorkIds, type Scope } from '../canon/scope';
 import type { SearchHitResponse, SearchPrinciplesResponse } from '../mcp/search-principles-tool';
 
 export interface RenderSearchPageOptions {
@@ -136,7 +136,7 @@ function renderHit(hit: SearchHitResponse): string {
 //   • `scope.figures` present ⇒ expand to every Work under the named Figure
 // Both are unioned. Extras stay unchecked unless explicitly named.
 function renderPicker(works: readonly WorkWithFigure[], scope: Scope): string {
-  const checkedIds = pickCheckedWorkIds(works, scope);
+  const checkedIds = pickWorkIds(scope, works);
   const groups = groupByFigure(works);
 
   const figureBlocks = groups
@@ -189,31 +189,6 @@ function groupByFigure(
     g.works.push(work);
   }
   return [...groups.values()];
-}
-
-function pickCheckedWorkIds(
-  works: readonly WorkWithFigure[],
-  scope: Scope,
-): Set<string> {
-  const scopedWorks = scope.works ?? [];
-  const scopedFigures = scope.figures ?? [];
-  if (scopedWorks.length === 0 && scopedFigures.length === 0) {
-    return new Set(works.filter((l) => l.work.tier === 'core').map((l) => l.work.id));
-  }
-  const chosen = new Set<string>();
-  const validWorkIds = new Set(works.map((l) => l.work.id));
-  for (const id of scopedWorks) {
-    if (validWorkIds.has(id)) chosen.add(id);
-  }
-  if (scopedFigures.length > 0) {
-    const wanted = new Set(scopedFigures);
-    for (const l of works) {
-      if (wanted.has(l.figure.id) || wanted.has(l.figure.slug)) {
-        chosen.add(l.work.id);
-      }
-    }
-  }
-  return chosen;
 }
 
 function escapeHtml(input: string): string {

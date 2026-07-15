@@ -30,16 +30,23 @@ export async function resolveScope(
   repository: CanonRepository,
 ): Promise<ResolvedScope> {
   const listings = await repository.listWorks();
-  const workIds = pickWorkIds(scope, listings);
+  const workIds = [...pickWorkIds(scope, listings)];
   const sourceIds = await repository.listSourceIdsInWorks(workIds);
   return { workIds, sourceIds };
 }
 
-function pickWorkIds(scope: Scope, listings: WorkWithFigure[]): string[] {
+// Resolves a Scope to the concrete set of Work ids it selects. Shared by the
+// server-side resolver (which feeds it into `listSourceIdsInWorks`) and the
+// web picker (which uses it to decide which checkboxes start checked). Unknown
+// ids are dropped — a stale URL never crashes a page or the search.
+export function pickWorkIds(
+  scope: Scope,
+  listings: readonly WorkWithFigure[],
+): Set<string> {
   const works = scope.works ?? [];
   const figures = scope.figures ?? [];
   if (works.length === 0 && figures.length === 0) {
-    return listings.filter((l) => l.work.tier === 'core').map((l) => l.work.id);
+    return new Set(listings.filter((l) => l.work.tier === 'core').map((l) => l.work.id));
   }
   const chosen = new Set<string>();
   const validWorkIds = new Set(listings.map((l) => l.work.id));
@@ -54,5 +61,5 @@ function pickWorkIds(scope: Scope, listings: WorkWithFigure[]): string[] {
       }
     }
   }
-  return [...chosen];
+  return chosen;
 }
