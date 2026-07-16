@@ -17,6 +17,7 @@ import {
   EDITION_DD_SPECIAL_GRACE,
   EDITION_DP,
   EDITION_PHG,
+  EDITION_TFG,
   EDITION_TM,
   EDITION_UT,
   EDITION_WOGW,
@@ -47,6 +48,9 @@ describe('sourceToEdition', () => {
     expect(
       sourceToEdition({ author: 'Sun Myung Moon', title: "The Way Of God's Will — WOGW-01" }),
     ).toBe(EDITION_WOGW);
+    expect(
+      sourceToEdition({ author: 'Sun Myung Moon', title: 'True Families: Gateway to Heaven' }),
+    ).toBe(EDITION_TFG);
   });
 
   it('routes DP part-slug authors (matched by /^\\d{2}-/) → DP Edition (Exposition)', () => {
@@ -112,6 +116,11 @@ describe('sourceToEdition', () => {
         title: `Pyeong Hwa Gyeong — PHG14-${i}`,
         expected: EDITION_PHG,
       });
+    rows.push({
+      author: 'Sun Myung Moon',
+      title: 'True Families: Gateway to Heaven',
+      expected: EDITION_TFG,
+    });
     for (let part = 1; part <= 15; part++) {
       const slug = `${String(part).padStart(2, '0')}-dp-part-${part}`;
       const per = part === 15 ? 3 : 4;
@@ -130,7 +139,7 @@ describe('sourceToEdition', () => {
       title: 'The Meaning of Special Grace',
       expected: EDITION_DD_SPECIAL_GRACE,
     });
-    expect(rows.length).toBe(626);
+    expect(rows.length).toBe(627);
 
     const counts = new Map<string, number>();
     for (const r of rows) {
@@ -144,6 +153,7 @@ describe('sourceToEdition', () => {
     expect(counts.get(EDITION_WOGW)).toBe(25);
     expect(counts.get(EDITION_CBG)).toBe(15);
     expect(counts.get(EDITION_PHG)).toBe(13);
+    expect(counts.get(EDITION_TFG)).toBe(1);
     expect(counts.get(EDITION_DP)).toBe(59);
     expect(counts.get(EDITION_DD_REVELATIONS)).toBe(10);
     expect(counts.get(EDITION_DD_SPECIAL_GRACE)).toBe(1);
@@ -151,15 +161,16 @@ describe('sourceToEdition', () => {
 });
 
 describe('BACKFILL_EDITIONS constants', () => {
-  it('declares one Edition per founding + extra Work (9 total, matches BACKFILL_WORKS)', () => {
-    expect(BACKFILL_EDITIONS).toHaveLength(9);
+  it('declares one Edition per founding + extra Work (10 total, matches BACKFILL_WORKS)', () => {
+    expect(BACKFILL_EDITIONS).toHaveLength(10);
   });
 
-  it('pins CSG / PHG / CBG / TM to `ffwpu-post-2012` with the specified labels', () => {
+  it('pins CSG / PHG / CBG / TFG / TM to `ffwpu-post-2012` with the specified labels', () => {
     const byId = new Map(BACKFILL_EDITIONS.map((e) => [e.id, e] as const));
     expect(byId.get(EDITION_CSG)).toMatchObject({ label: '2013 Revised', recension: 'ffwpu-post-2012' });
     expect(byId.get(EDITION_PHG)).toMatchObject({ label: '2014', recension: 'ffwpu-post-2012' });
     expect(byId.get(EDITION_CBG)).toMatchObject({ label: '2015', recension: 'ffwpu-post-2012' });
+    expect(byId.get(EDITION_TFG)).toMatchObject({ label: '2014 translation', recension: 'ffwpu-post-2012' });
     expect(byId.get(EDITION_TM)).toMatchObject({ label: '2017', recension: 'ffwpu-post-2012' });
   });
 

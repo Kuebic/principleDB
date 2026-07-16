@@ -10,6 +10,7 @@
 //   The Way of God's Will      25  author='Sun Myung Moon' + title~/way of god's will/i
 //   Cham Bumo Gyeong   (CBG)   15  author='Sun Myung Moon' + title~/Cham Bumo Gyeong/
 //   Pyeong Hwa Gyeong  (PHG)   13  author='Sun Myung Moon' + title~/Pyeong Hwa Gyeong/
+//   Gateway to Heaven  (TFG)    1  author='Sun Myung Moon' + title~/Gateway to Heaven/
 //   TM Anthology       (TMA)    4  author='Hak Ja Han Moon'
 //
 // Post-founding `extra` additions already in the Canon (assigned here so their
@@ -32,6 +33,7 @@ export const WORK_UT = 'work_ut';
 export const WORK_WOGW = 'work_wogw';
 export const WORK_CBG = 'work_cbg';
 export const WORK_PHG = 'work_phg';
+export const WORK_TFG = 'work_tfg';
 export const WORK_TM = 'work_tm';
 export const WORK_DD_REVELATIONS = 'work_dd_revelations';
 export const WORK_DD_SPECIAL_GRACE = 'work_dd_special-grace';
@@ -54,6 +56,12 @@ export const BACKFILL_WORKS: readonly Work[] = [
   { id: WORK_WOGW, title: "The Way of God's Will", figureId: FIGURE_SMM, tier: 'core' },
   { id: WORK_CBG, title: 'Cham Bumo Gyeong', figureId: FIGURE_SMM, tier: 'core' },
   { id: WORK_PHG, title: 'Pyeong Hwa Gyeong', figureId: FIGURE_SMM, tier: 'core' },
+  {
+    id: WORK_TFG,
+    title: 'True Families: Gateway to Heaven',
+    figureId: FIGURE_SMM,
+    tier: 'core',
+  },
   { id: WORK_UT, title: 'Unification Thought', figureId: FIGURE_SHL, tier: 'core' },
   { id: WORK_TM, title: 'True Mother Anthology', figureId: FIGURE_HJH, tier: 'core' },
   {
@@ -88,6 +96,7 @@ export function sourceToWork(row: SourceRow): string {
     const t = row.title;
     if (t.includes('Cham Bumo Gyeong')) return WORK_CBG;
     if (t.includes('Pyeong Hwa Gyeong')) return WORK_PHG;
+    if (t.includes('Gateway to Heaven')) return WORK_TFG;
     // Case-insensitive: the live titles read "The Way *Of* God's Will".
     if (t.toLowerCase().includes("way of god's will")) return WORK_WOGW;
     throw new UnmappedSourceError(row);

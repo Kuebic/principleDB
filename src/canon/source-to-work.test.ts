@@ -8,7 +8,7 @@
 //   author='SunMyungMoon-CSG'                    → Cheon Seong Gyeong  (429)
 //   author='Sang Hun Lee'                        → Unification Thought (70)
 //   author='Hak Ja Han Moon'                     → TM Anthology        (4)
-//   author='Sun Myung Moon' + title-signature    → WOGW / CBG / PHG    (25/15/13)
+//   author='Sun Myung Moon' + title-signature    → WOGW / CBG / PHG / TFG (25/15/13/1)
 //   author matches /^\d{2}-/ (DP part-slugs)     → Divine Principle    (59)
 //   author='Damien Dunkley' + title-signature    → the two Dunkley Works (10/1)
 //   anything else                                → THROWS (guardrail, no silent DP)
@@ -28,6 +28,7 @@ import {
   WORK_DD_SPECIAL_GRACE,
   WORK_DP,
   WORK_PHG,
+  WORK_TFG,
   WORK_TM,
   WORK_UT,
   WORK_WOGW,
@@ -55,6 +56,19 @@ describe('sourceToWork', () => {
     // Real capitalisation — "Way *Of* God's Will". A case-sensitive check regresses here.
     expect(sourceToWork({ author: 'Sun Myung Moon', title: 'Section 1 The Predestination of the Way Of God’s Will'.replace('’', "'") })).toBe(WORK_WOGW);
     expect(sourceToWork({ author: 'Sun Myung Moon', title: "Witnessing - The Way Of God's Will - Sun Myung Moon" })).toBe(WORK_WOGW);
+  });
+
+  it('maps the Sun Myung Moon "Gateway to Heaven" textbook → its own core Work', () => {
+    expect(
+      sourceToWork({ author: 'Sun Myung Moon', title: 'True Families: Gateway to Heaven' }),
+    ).toBe(WORK_TFG);
+    // The real PDF title carries the translation/date suffix — still matches.
+    expect(
+      sourceToWork({
+        author: 'Sun Myung Moon',
+        title: 'True Families: Gateway to Heaven - 2014 translation',
+      }),
+    ).toBe(WORK_TFG);
   });
 
   it('matches WOGW regardless of the case of "Of"', () => {
@@ -104,7 +118,7 @@ describe('sourceToWork', () => {
     );
   });
 
-  it('partition is total and disjoint over the live 626 rows (429/59/25/15/13/70/4 + 10/1)', () => {
+  it('partition is total and disjoint over the live 627 rows (429/59/25/15/13/1/70/4 + 10/1)', () => {
     // Representative rows drawn from the live partition. Each row must map to
     // exactly one Work; the count per Work must match what the dry-run reports.
     const rows: Array<{ author: string; title: string; expected: string }> = [];
@@ -115,6 +129,8 @@ describe('sourceToWork', () => {
     for (let i = 0; i < 25; i++) rows.push({ author: 'Sun Myung Moon', title: `The Way Of God's Will — WOGW-${i}`, expected: WORK_WOGW });
     for (let i = 0; i < 15; i++) rows.push({ author: 'Sun Myung Moon', title: `Cham Bumo Gyeong — ChambumoGyeong-${i}`, expected: WORK_CBG });
     for (let i = 0; i < 13; i++) rows.push({ author: 'Sun Myung Moon', title: `Pyeong Hwa Gyeong — PHG14-${i}`, expected: WORK_PHG });
+    // Gateway to Heaven — a single 26-page textbook PDF → one Source.
+    rows.push({ author: 'Sun Myung Moon', title: 'True Families: Gateway to Heaven', expected: WORK_TFG });
     // DP's 59 shattered across ~16 part-slug values; use ~4 rows per slug for realism.
     // 14 parts × 4 + 1 part × 3 = 59 rows exactly.
     for (let part = 1; part <= 15; part++) {
@@ -127,7 +143,7 @@ describe('sourceToWork', () => {
       rows.push({ author: 'Damien Dunkley', title: `Discourse on True Mother's Revelations — Part ${String(i).padStart(2, '0')}`, expected: WORK_DD_REVELATIONS });
     }
     rows.push({ author: 'Damien Dunkley', title: 'The Meaning of Special Grace', expected: WORK_DD_SPECIAL_GRACE });
-    expect(rows.length).toBe(626);
+    expect(rows.length).toBe(627);
 
     const counts = new Map<string, number>();
     for (const r of rows) {
@@ -141,6 +157,7 @@ describe('sourceToWork', () => {
     expect(counts.get(WORK_WOGW)).toBe(25);
     expect(counts.get(WORK_CBG)).toBe(15);
     expect(counts.get(WORK_PHG)).toBe(13);
+    expect(counts.get(WORK_TFG)).toBe(1);
     expect(counts.get(WORK_DP)).toBe(59);
     expect(counts.get(WORK_DD_REVELATIONS)).toBe(10);
     expect(counts.get(WORK_DD_SPECIAL_GRACE)).toBe(1);
@@ -158,21 +175,21 @@ describe('BACKFILL_FIGURES / BACKFILL_WORKS constants', () => {
     expect(displayNames).toEqual(['Damien Dunkley', 'Hak Ja Han', 'Sang Hun Lee', 'Sun Myung Moon']);
   });
 
-  it('declares 9 Works, each pointing at a real Figure id; the 7 founding are core, the 2 Dunkley are extra', () => {
-    expect(BACKFILL_WORKS).toHaveLength(9);
+  it('declares 10 Works, each pointing at a real Figure id; the 8 founding are core, the 2 Dunkley are extra', () => {
+    expect(BACKFILL_WORKS).toHaveLength(10);
     const figureIds = new Set(BACKFILL_FIGURES.map((f) => f.id));
     for (const w of BACKFILL_WORKS) {
       expect(figureIds.has(w.figureId)).toBe(true);
     }
-    expect(BACKFILL_WORKS.filter((w) => w.tier === 'core')).toHaveLength(7);
+    expect(BACKFILL_WORKS.filter((w) => w.tier === 'core')).toHaveLength(8);
     const extras = BACKFILL_WORKS.filter((w) => w.tier === 'extra').map((w) => w.id).sort();
     expect(extras).toEqual([WORK_DD_REVELATIONS, WORK_DD_SPECIAL_GRACE].sort());
   });
 
-  it('attributes Sun Myung Moon to CSG, DP, WOGW, CBG, PHG (5 Works)', () => {
+  it('attributes Sun Myung Moon to CSG, DP, WOGW, CBG, PHG, TFG (6 Works)', () => {
     const smm = BACKFILL_FIGURES.find((f) => f.displayName === 'Sun Myung Moon')!;
     const smmWorks = BACKFILL_WORKS.filter((w) => w.figureId === smm.id).map((w) => w.id).sort();
-    expect(smmWorks).toEqual([WORK_CBG, WORK_CSG, WORK_DP, WORK_PHG, WORK_WOGW].sort());
+    expect(smmWorks).toEqual([WORK_CBG, WORK_CSG, WORK_DP, WORK_PHG, WORK_TFG, WORK_WOGW].sort());
   });
 
   it('attributes Sang Hun Lee → UT, Hak Ja Han → TM, Damien Dunkley → both discourses', () => {

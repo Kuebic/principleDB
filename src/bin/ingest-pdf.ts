@@ -60,7 +60,7 @@ export const DEFAULT_MAX_DISTIL_CHARS = 40000;
 
 export const INGEST_PDF_USAGE =
   'usage: principledb-ingest-pdf <file.pdf|dir> [--author A] [--title T] ' +
-  '[--kind sermon|book|article|transcript] [--date YYYY-MM-DD] ' +
+  '[--kind sermon|book|article|transcript] [--date YYYY-MM-DD] [--edition ED_ID] ' +
   '[--target cpu|remote-gpu] [--model haiku|opus] [--limit N] [--max-distil-chars N] [--dry-run] [--no-archive]';
 
 export interface IngestPdfArgs {
@@ -69,6 +69,12 @@ export interface IngestPdfArgs {
   title?: string;
   kind?: SourceKind;
   date?: string;
+  // Edition this Source belongs to (ADR-0018). Every ingest declares its
+  // Edition — and through it the Work/Figure — so citations render the
+  // recension-aware label instead of the raw author slug. Postgres requires a
+  // non-null `editionId`, so a real ingest must pass this; the Edition row
+  // itself is seeded by `backfill:editions` before the source is inserted.
+  edition?: string;
   target: ExtractionTarget;
   // Distil model. Defaults to Haiku in the bin — the Claude Code OAuth token is
   // Haiku-entitled; Opus is gated and returns 429. `opus` only works with an
@@ -132,6 +138,7 @@ export function parseIngestPdfArgs(argv: string[]): IngestPdfArgs {
     ...(flags.title !== undefined ? { title: flags.title } : {}),
     ...(kind !== undefined ? { kind: kind as SourceKind } : {}),
     ...(flags.date !== undefined ? { date: flags.date } : {}),
+    ...(flags.edition !== undefined ? { edition: flags.edition } : {}),
     ...(model !== undefined ? { model: model as DistilModelChoice } : {}),
     ...(limit !== undefined ? { limit } : {}),
     ...(maxDistilChars !== undefined ? { maxDistilChars } : {}),
@@ -235,6 +242,7 @@ function derivePdfMeta(pdfPath: string, args: IngestPdfArgs, id: string): PdfSou
     // deriver, which omits date when no token is present).
     date: args.date ?? '',
     kind: args.kind ?? 'book',
+    ...(args.edition !== undefined ? { editionId: args.edition } : {}),
   };
 }
 

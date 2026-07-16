@@ -10,6 +10,7 @@
 //   CSG   → "2013 Revised" / `ffwpu-post-2012`
 //   PHG   → "2014"         / `ffwpu-post-2012`
 //   CBG   → "2015"         / `ffwpu-post-2012`
+//   TFG   → "2014 translation" / `ffwpu-post-2012`
 //   TM    → "2017"         / `ffwpu-post-2012`
 //   DP    → "Exposition"   / `pre-ascension-original`
 //   WOGW  → "1980"         / `pre-ascension-original`
@@ -29,6 +30,7 @@ import {
   WORK_DD_SPECIAL_GRACE,
   WORK_DP,
   WORK_PHG,
+  WORK_TFG,
   WORK_TM,
   WORK_UT,
   WORK_WOGW,
@@ -42,6 +44,7 @@ export const EDITION_UT = 'ed_ut';
 export const EDITION_WOGW = 'ed_wogw';
 export const EDITION_CBG = 'ed_cbg';
 export const EDITION_PHG = 'ed_phg';
+export const EDITION_TFG = 'ed_tfg';
 export const EDITION_TM = 'ed_tm';
 export const EDITION_DD_REVELATIONS = 'ed_dd_revelations';
 export const EDITION_DD_SPECIAL_GRACE = 'ed_dd_special-grace';
@@ -108,6 +111,18 @@ export const BACKFILL_EDITIONS: readonly Edition[] = [
     notes: null,
   },
   {
+    id: EDITION_TFG,
+    workId: WORK_TFG,
+    label: '2014 translation',
+    recension: 'ffwpu-post-2012',
+    language: 'en',
+    // Compilation designated 2009 (one of the eight great textbooks); this
+    // artifact is the FFWPU 2014 English translation.
+    publishedDate: '2014-01-01',
+    publisher: null,
+    notes: null,
+  },
+  {
     id: EDITION_TM,
     workId: WORK_TM,
     label: '2017',
@@ -146,6 +161,7 @@ const WORK_TO_EDITION = new Map<string, string>([
   [WORK_WOGW, EDITION_WOGW],
   [WORK_CBG, EDITION_CBG],
   [WORK_PHG, EDITION_PHG],
+  [WORK_TFG, EDITION_TFG],
   [WORK_TM, EDITION_TM],
   [WORK_DD_REVELATIONS, EDITION_DD_REVELATIONS],
   [WORK_DD_SPECIAL_GRACE, EDITION_DD_SPECIAL_GRACE],

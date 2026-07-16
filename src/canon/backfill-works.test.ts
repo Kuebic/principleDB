@@ -8,7 +8,7 @@ import { backfillWorks } from './backfill-works';
 import { BACKFILL_FIGURES, BACKFILL_WORKS } from './source-to-work';
 
 describe('backfillWorks', () => {
-  it('upserts the founding 4 Figures and 9 Works', async () => {
+  it('upserts the founding 4 Figures and 10 Works', async () => {
     const repo = new InMemoryRepository();
     const result = await backfillWorks(repo);
 

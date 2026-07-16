@@ -18,6 +18,7 @@ import {
   EDITION_DD_SPECIAL_GRACE,
   EDITION_DP,
   EDITION_PHG,
+  EDITION_TFG,
   EDITION_TM,
   EDITION_UT,
   EDITION_WOGW,
@@ -53,6 +54,7 @@ async function seedRepresentative() {
   await repo.upsertSource(src('s7', '01-the-principle-of-creation', 'Ch.1', EDITION_DP));
   await repo.upsertSource(src('s8', 'Damien Dunkley', "Discourse on True Mother's Revelations — Part 01", EDITION_DD_REVELATIONS));
   await repo.upsertSource(src('s9', 'Damien Dunkley', 'The Meaning of Special Grace', EDITION_DD_SPECIAL_GRACE));
+  await repo.upsertSource(src('s10', 'Sun Myung Moon', 'True Families: Gateway to Heaven', EDITION_TFG));
   return repo;
 }
 
@@ -62,13 +64,13 @@ async function editionForSource(repo: InMemoryRepository, sourceId: string): Pro
 }
 
 describe('backfillEditions', () => {
-  it('creates the 9 Editions and leaves already-correct Source assignments unchanged', async () => {
+  it('creates the 10 Editions and leaves already-correct Source assignments unchanged', async () => {
     const repo = await seedRepresentative();
     const result = await backfillEditions(repo);
 
-    expect(result.editionsUpserted).toBe(9);
+    expect(result.editionsUpserted).toBe(10);
     expect(result.sourcesAssigned).toBe(0);
-    expect(result.sourcesUnchanged).toBe(9);
+    expect(result.sourcesUnchanged).toBe(10);
 
     // Every seeded Edition is readable through the port.
     for (const e of BACKFILL_EDITIONS) {
@@ -90,6 +92,7 @@ describe('backfillEditions', () => {
     expect(await editionForSource(repo, 's7')).toBe(EDITION_DP);
     expect(await editionForSource(repo, 's8')).toBe(EDITION_DD_REVELATIONS);
     expect(await editionForSource(repo, 's9')).toBe(EDITION_DD_SPECIAL_GRACE);
+    expect(await editionForSource(repo, 's10')).toBe(EDITION_TFG);
   });
 
   it('is idempotent — a second run produces no duplicates and no assignment changes', async () => {
@@ -100,7 +103,7 @@ describe('backfillEditions', () => {
     const csgBefore = await repo.getEdition(EDITION_CSG);
 
     const second = await backfillEditions(repo);
-    expect(second.sourcesUnchanged).toBe(9);
+    expect(second.sourcesUnchanged).toBe(10);
     expect(second.sourcesAssigned).toBe(0);
 
     // The upsert on second run is a no-op — the Edition is byte-for-byte

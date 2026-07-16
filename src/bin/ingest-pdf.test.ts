@@ -49,6 +49,11 @@ describe('parseIngestPdfArgs', () => {
     });
   });
 
+  it('parses --edition (ADR-0018 — every ingest declares its Edition)', () => {
+    expect(parseIngestPdfArgs(['x', '--edition', 'ed_tfg']).edition).toBe('ed_tfg');
+    expect(parseIngestPdfArgs(['x']).edition).toBeUndefined();
+  });
+
   it('parses --model and rejects an unknown one', () => {
     expect(parseIngestPdfArgs(['x', '--model', 'haiku']).model).toBe('haiku');
     expect(parseIngestPdfArgs(['x', '--model', 'opus']).model).toBe('opus');
@@ -84,6 +89,15 @@ describe('planPdfSources', () => {
     expect(plan.jobs[0]!.meta.title).toBe('Cham Bumo Gyeong — ChambumoGyeong-00');
     expect(plan.jobs[0]!.meta.id).toMatch(/^src-path-/);
     expect(plan.jobs[0]!.meta.id).not.toBe(plan.jobs[1]!.meta.id);
+  });
+
+  it('stamps --edition onto every planned Source meta (ADR-0018)', () => {
+    const plan = planPdfSources(
+      parseIngestPdfArgs([dir, '--author', 'Sun Myung Moon', '--edition', 'ed_tfg']),
+    );
+    expect(plan.jobs).toHaveLength(2);
+    expect(plan.jobs[0]!.meta.editionId).toBe('ed_tfg');
+    expect(plan.jobs[1]!.meta.editionId).toBe('ed_tfg');
   });
 
   it('falls back to the parent-dir name for author when --author is omitted', () => {
