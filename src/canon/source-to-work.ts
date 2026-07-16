@@ -17,6 +17,7 @@
 // citations stop rendering the raw `author` slug):
 //   Damien Dunkley — "Discourse on True Mother's Revelations"  10  transcript
 //   Damien Dunkley — "The Meaning of Special Grace"             1  transcript
+//   Sun Myung Moon — "The Way of Tradition" (vols I–IV, 1980)    4  book (extra)
 //
 // DP is identified POSITIVELY by its part-slug author (`01-the-principle-of-
 // creation`, `07-christology`, …) — NOT as a catch-all "everything else".
@@ -37,6 +38,7 @@ export const WORK_TFG = 'work_tfg';
 export const WORK_TM = 'work_tm';
 export const WORK_DD_REVELATIONS = 'work_dd_revelations';
 export const WORK_DD_SPECIAL_GRACE = 'work_dd_special-grace';
+export const WORK_WOT = 'work_wot';
 
 const FIGURE_SMM = 'fig_sun-myung-moon';
 const FIGURE_SHL = 'fig_sang-hun-lee';
@@ -76,6 +78,7 @@ export const BACKFILL_WORKS: readonly Work[] = [
     figureId: FIGURE_DD,
     tier: 'extra',
   },
+  { id: WORK_WOT, title: 'The Way of Tradition', figureId: FIGURE_SMM, tier: 'extra' },
 ];
 
 export interface SourceRow {
@@ -97,6 +100,9 @@ export function sourceToWork(row: SourceRow): string {
     if (t.includes('Cham Bumo Gyeong')) return WORK_CBG;
     if (t.includes('Pyeong Hwa Gyeong')) return WORK_PHG;
     if (t.includes('Gateway to Heaven')) return WORK_TFG;
+    // `extra` addition — the 4-volume 1980 compilation. Checked before WOGW;
+    // the two titles don't overlap, so order is only for readability.
+    if (t.includes('Way of Tradition')) return WORK_WOT;
     // Case-insensitive: the live titles read "The Way *Of* God's Will".
     if (t.toLowerCase().includes("way of god's will")) return WORK_WOGW;
     throw new UnmappedSourceError(row);

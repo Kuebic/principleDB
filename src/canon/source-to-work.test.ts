@@ -32,6 +32,7 @@ import {
   WORK_TM,
   WORK_UT,
   WORK_WOGW,
+  WORK_WOT,
   sourceToWork,
 } from './source-to-work';
 
@@ -91,6 +92,15 @@ describe('sourceToWork', () => {
     expect(sourceToWork({ author: '16-final-restoration', title: 'anything' })).toBe(WORK_DP);
   });
 
+  it('maps the Sun Myung Moon "Way of Tradition" compilation → its own extra Work', () => {
+    expect(
+      sourceToWork({ author: 'Sun Myung Moon', title: 'The Way of Tradition — WayOfTradition1-800000' }),
+    ).toBe(WORK_WOT);
+    expect(
+      sourceToWork({ author: 'Sun Myung Moon', title: 'The Way of Tradition — WayOfTradition4-800000' }),
+    ).toBe(WORK_WOT);
+  });
+
   it('maps the two Damien Dunkley discourses to their extra Works', () => {
     expect(
       sourceToWork({ author: 'Damien Dunkley', title: "Discourse on True Mother's Revelations — Part 01" }),
@@ -118,7 +128,7 @@ describe('sourceToWork', () => {
     );
   });
 
-  it('partition is total and disjoint over the live 627 rows (429/59/25/15/13/1/70/4 + 10/1)', () => {
+  it('partition is total and disjoint over the live 631 rows (429/59/25/15/13/1/70/4 + 10/1 + 4)', () => {
     // Representative rows drawn from the live partition. Each row must map to
     // exactly one Work; the count per Work must match what the dry-run reports.
     const rows: Array<{ author: string; title: string; expected: string }> = [];
@@ -143,7 +153,11 @@ describe('sourceToWork', () => {
       rows.push({ author: 'Damien Dunkley', title: `Discourse on True Mother's Revelations — Part ${String(i).padStart(2, '0')}`, expected: WORK_DD_REVELATIONS });
     }
     rows.push({ author: 'Damien Dunkley', title: 'The Meaning of Special Grace', expected: WORK_DD_SPECIAL_GRACE });
-    expect(rows.length).toBe(627);
+    // The Way of Tradition `extra` addition: 4 volume PDFs → one Work.
+    for (let i = 1; i <= 4; i++) {
+      rows.push({ author: 'Sun Myung Moon', title: `The Way of Tradition — WayOfTradition${i}-800000`, expected: WORK_WOT });
+    }
+    expect(rows.length).toBe(631);
 
     const counts = new Map<string, number>();
     for (const r of rows) {
@@ -161,6 +175,7 @@ describe('sourceToWork', () => {
     expect(counts.get(WORK_DP)).toBe(59);
     expect(counts.get(WORK_DD_REVELATIONS)).toBe(10);
     expect(counts.get(WORK_DD_SPECIAL_GRACE)).toBe(1);
+    expect(counts.get(WORK_WOT)).toBe(4);
   });
 
   it('is deterministic — same input always produces the same Work id', () => {
@@ -175,21 +190,21 @@ describe('BACKFILL_FIGURES / BACKFILL_WORKS constants', () => {
     expect(displayNames).toEqual(['Damien Dunkley', 'Hak Ja Han', 'Sang Hun Lee', 'Sun Myung Moon']);
   });
 
-  it('declares 10 Works, each pointing at a real Figure id; the 8 founding are core, the 2 Dunkley are extra', () => {
-    expect(BACKFILL_WORKS).toHaveLength(10);
+  it('declares 11 Works, each pointing at a real Figure id; the 8 founding are core, the 2 Dunkley + Way of Tradition are extra', () => {
+    expect(BACKFILL_WORKS).toHaveLength(11);
     const figureIds = new Set(BACKFILL_FIGURES.map((f) => f.id));
     for (const w of BACKFILL_WORKS) {
       expect(figureIds.has(w.figureId)).toBe(true);
     }
     expect(BACKFILL_WORKS.filter((w) => w.tier === 'core')).toHaveLength(8);
     const extras = BACKFILL_WORKS.filter((w) => w.tier === 'extra').map((w) => w.id).sort();
-    expect(extras).toEqual([WORK_DD_REVELATIONS, WORK_DD_SPECIAL_GRACE].sort());
+    expect(extras).toEqual([WORK_DD_REVELATIONS, WORK_DD_SPECIAL_GRACE, WORK_WOT].sort());
   });
 
-  it('attributes Sun Myung Moon to CSG, DP, WOGW, CBG, PHG, TFG (6 Works)', () => {
+  it('attributes Sun Myung Moon to CSG, DP, WOGW, CBG, PHG, TFG + the extra Way of Tradition (7 Works)', () => {
     const smm = BACKFILL_FIGURES.find((f) => f.displayName === 'Sun Myung Moon')!;
     const smmWorks = BACKFILL_WORKS.filter((w) => w.figureId === smm.id).map((w) => w.id).sort();
-    expect(smmWorks).toEqual([WORK_CBG, WORK_CSG, WORK_DP, WORK_PHG, WORK_TFG, WORK_WOGW].sort());
+    expect(smmWorks).toEqual([WORK_CBG, WORK_CSG, WORK_DP, WORK_PHG, WORK_TFG, WORK_WOGW, WORK_WOT].sort());
   });
 
   it('attributes Sang Hun Lee → UT, Hak Ja Han → TM, Damien Dunkley → both discourses', () => {

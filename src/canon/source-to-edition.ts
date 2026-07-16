@@ -15,6 +15,7 @@
 //   DP    → "Exposition"   / `pre-ascension-original`
 //   WOGW  → "1980"         / `pre-ascension-original`
 //   UT    → "Original"     / `pre-ascension-original`
+//   WOT   → "1980"         / `pre-ascension-original`  (extra)
 //   Dunkley (both)         / `external-discourse`
 //
 // The backfill script (scripts/backfill-editions.ts) is a thin shell that
@@ -34,6 +35,7 @@ import {
   WORK_TM,
   WORK_UT,
   WORK_WOGW,
+  WORK_WOT,
   sourceToWork,
   type SourceRow,
 } from './source-to-work';
@@ -48,6 +50,7 @@ export const EDITION_TFG = 'ed_tfg';
 export const EDITION_TM = 'ed_tm';
 export const EDITION_DD_REVELATIONS = 'ed_dd_revelations';
 export const EDITION_DD_SPECIAL_GRACE = 'ed_dd_special-grace';
+export const EDITION_WOT = 'ed_wot';
 
 export const BACKFILL_EDITIONS: readonly Edition[] = [
   {
@@ -152,6 +155,16 @@ export const BACKFILL_EDITIONS: readonly Edition[] = [
     publisher: null,
     notes: null,
   },
+  {
+    id: EDITION_WOT,
+    workId: WORK_WOT,
+    label: '1980',
+    recension: 'pre-ascension-original',
+    language: 'en',
+    publishedDate: '1980-01-01',
+    publisher: null,
+    notes: null,
+  },
 ];
 
 const WORK_TO_EDITION = new Map<string, string>([
@@ -165,6 +178,7 @@ const WORK_TO_EDITION = new Map<string, string>([
   [WORK_TM, EDITION_TM],
   [WORK_DD_REVELATIONS, EDITION_DD_REVELATIONS],
   [WORK_DD_SPECIAL_GRACE, EDITION_DD_SPECIAL_GRACE],
+  [WORK_WOT, EDITION_WOT],
 ]);
 
 export function sourceToEdition(row: SourceRow): string {

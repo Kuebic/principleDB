@@ -21,6 +21,7 @@ import {
   EDITION_TM,
   EDITION_UT,
   EDITION_WOGW,
+  EDITION_WOT,
   sourceToEdition,
 } from './source-to-edition';
 import { BACKFILL_WORKS, UnmappedSourceError } from './source-to-work';
@@ -51,6 +52,12 @@ describe('sourceToEdition', () => {
     expect(
       sourceToEdition({ author: 'Sun Myung Moon', title: 'True Families: Gateway to Heaven' }),
     ).toBe(EDITION_TFG);
+  });
+
+  it('routes the Sun Myung Moon "Way of Tradition" compilation → its extra WOT Edition', () => {
+    expect(
+      sourceToEdition({ author: 'Sun Myung Moon', title: 'The Way of Tradition — WayOfTradition1-800000' }),
+    ).toBe(EDITION_WOT);
   });
 
   it('routes DP part-slug authors (matched by /^\\d{2}-/) → DP Edition (Exposition)', () => {
@@ -90,7 +97,7 @@ describe('sourceToEdition', () => {
     expect(sourceToEdition(row)).toBe(sourceToEdition(row));
   });
 
-  it('partition is total over the live 626 rows — every representative row maps', () => {
+  it('partition is total over the live 631 rows — every representative row maps', () => {
     const rows: Array<{ author: string; title: string; expected: string }> = [];
     for (let i = 0; i < 429; i++)
       rows.push({ author: 'SunMyungMoon-CSG', title: `CSG chunk ${i}`, expected: EDITION_CSG });
@@ -139,7 +146,14 @@ describe('sourceToEdition', () => {
       title: 'The Meaning of Special Grace',
       expected: EDITION_DD_SPECIAL_GRACE,
     });
-    expect(rows.length).toBe(627);
+    for (let i = 1; i <= 4; i++) {
+      rows.push({
+        author: 'Sun Myung Moon',
+        title: `The Way of Tradition — WayOfTradition${i}-800000`,
+        expected: EDITION_WOT,
+      });
+    }
+    expect(rows.length).toBe(631);
 
     const counts = new Map<string, number>();
     for (const r of rows) {
@@ -157,12 +171,13 @@ describe('sourceToEdition', () => {
     expect(counts.get(EDITION_DP)).toBe(59);
     expect(counts.get(EDITION_DD_REVELATIONS)).toBe(10);
     expect(counts.get(EDITION_DD_SPECIAL_GRACE)).toBe(1);
+    expect(counts.get(EDITION_WOT)).toBe(4);
   });
 });
 
 describe('BACKFILL_EDITIONS constants', () => {
-  it('declares one Edition per founding + extra Work (10 total, matches BACKFILL_WORKS)', () => {
-    expect(BACKFILL_EDITIONS).toHaveLength(10);
+  it('declares one Edition per founding + extra Work (11 total, matches BACKFILL_WORKS)', () => {
+    expect(BACKFILL_EDITIONS).toHaveLength(11);
   });
 
   it('pins CSG / PHG / CBG / TFG / TM to `ffwpu-post-2012` with the specified labels', () => {
@@ -179,6 +194,8 @@ describe('BACKFILL_EDITIONS constants', () => {
     expect(byId.get(EDITION_DP)).toMatchObject({ label: 'Exposition', recension: 'pre-ascension-original' });
     expect(byId.get(EDITION_WOGW)).toMatchObject({ label: '1980', recension: 'pre-ascension-original' });
     expect(byId.get(EDITION_UT)?.recension).toBe('pre-ascension-original');
+    // Way of Tradition — extra, same 1980 pre-ascension recension.
+    expect(byId.get(EDITION_WOT)).toMatchObject({ label: '1980', recension: 'pre-ascension-original' });
   });
 
   it('pins the two Dunkley discourses to `external-discourse`', () => {

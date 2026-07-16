@@ -64,11 +64,11 @@ async function editionForSource(repo: InMemoryRepository, sourceId: string): Pro
 }
 
 describe('backfillEditions', () => {
-  it('creates the 10 Editions and leaves already-correct Source assignments unchanged', async () => {
+  it('creates every seeded Edition and leaves already-correct Source assignments unchanged', async () => {
     const repo = await seedRepresentative();
     const result = await backfillEditions(repo);
 
-    expect(result.editionsUpserted).toBe(10);
+    expect(result.editionsUpserted).toBe(BACKFILL_EDITIONS.length);
     expect(result.sourcesAssigned).toBe(0);
     expect(result.sourcesUnchanged).toBe(10);
 
