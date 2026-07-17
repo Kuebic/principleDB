@@ -36,6 +36,8 @@ import {
   WORK_UT,
   WORK_WOGW,
   WORK_WOT,
+  WORK_MOP,
+  WORK_PLGC,
   sourceToWork,
   type SourceRow,
 } from './source-to-work';
@@ -51,6 +53,8 @@ export const EDITION_TM = 'ed_tm';
 export const EDITION_DD_REVELATIONS = 'ed_dd_revelations';
 export const EDITION_DD_SPECIAL_GRACE = 'ed_dd_special-grace';
 export const EDITION_WOT = 'ed_wot';
+export const EDITION_MOP = 'ed_mop';
+export const EDITION_PLGC = 'ed_plgc';
 
 export const BACKFILL_EDITIONS: readonly Edition[] = [
   {
@@ -165,6 +169,29 @@ export const BACKFILL_EDITIONS: readonly Edition[] = [
     publisher: null,
     notes: null,
   },
+  {
+    id: EDITION_PLGC,
+    workId: WORK_PLGC,
+    // Sun Myung Moon's autobiography, published 2009 — before his 2012
+    // ascension, so the original pre-ascension recension.
+    label: '2009',
+    recension: 'pre-ascension-original',
+    language: 'en',
+    publishedDate: '2009-01-01',
+    publisher: null,
+    notes: null,
+  },
+  {
+    id: EDITION_MOP,
+    workId: WORK_MOP,
+    // Hak Ja Han's memoir; this artifact is the updated 2021 English edition.
+    label: '2021 Memoir',
+    recension: 'ffwpu-post-2012',
+    language: 'en',
+    publishedDate: '2021-01-01',
+    publisher: null,
+    notes: null,
+  },
 ];
 
 const WORK_TO_EDITION = new Map<string, string>([
@@ -179,6 +206,8 @@ const WORK_TO_EDITION = new Map<string, string>([
   [WORK_DD_REVELATIONS, EDITION_DD_REVELATIONS],
   [WORK_DD_SPECIAL_GRACE, EDITION_DD_SPECIAL_GRACE],
   [WORK_WOT, EDITION_WOT],
+  [WORK_PLGC, EDITION_PLGC],
+  [WORK_MOP, EDITION_MOP],
 ]);
 
 export function sourceToEdition(row: SourceRow): string {

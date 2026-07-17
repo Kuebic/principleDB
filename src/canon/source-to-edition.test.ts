@@ -22,6 +22,8 @@ import {
   EDITION_UT,
   EDITION_WOGW,
   EDITION_WOT,
+  EDITION_MOP,
+  EDITION_PLGC,
   sourceToEdition,
 } from './source-to-edition';
 import { BACKFILL_WORKS, UnmappedSourceError } from './source-to-work';
@@ -58,6 +60,15 @@ describe('sourceToEdition', () => {
     expect(
       sourceToEdition({ author: 'Sun Myung Moon', title: 'The Way of Tradition — WayOfTradition1-800000' }),
     ).toBe(EDITION_WOT);
+  });
+
+  it('routes the SMM autobiography → PLGC Edition and the HJH memoir → MoP Edition', () => {
+    expect(
+      sourceToEdition({ author: 'Sun Myung Moon', title: 'As a Peace-Loving Global Citizen' }),
+    ).toBe(EDITION_PLGC);
+    expect(
+      sourceToEdition({ author: 'Hak Ja Han Moon', title: 'Mother of Peace, the Memoir' }),
+    ).toBe(EDITION_MOP);
   });
 
   it('routes DP part-slug authors (matched by /^\\d{2}-/) → DP Edition (Exposition)', () => {
@@ -97,7 +108,7 @@ describe('sourceToEdition', () => {
     expect(sourceToEdition(row)).toBe(sourceToEdition(row));
   });
 
-  it('partition is total over the live 631 rows — every representative row maps', () => {
+  it('partition is total over the live 633 rows — every representative row maps', () => {
     const rows: Array<{ author: string; title: string; expected: string }> = [];
     for (let i = 0; i < 429; i++)
       rows.push({ author: 'SunMyungMoon-CSG', title: `CSG chunk ${i}`, expected: EDITION_CSG });
@@ -153,7 +164,17 @@ describe('sourceToEdition', () => {
         expected: EDITION_WOT,
       });
     }
-    expect(rows.length).toBe(631);
+    rows.push({
+      author: 'Sun Myung Moon',
+      title: 'As a Peace-Loving Global Citizen',
+      expected: EDITION_PLGC,
+    });
+    rows.push({
+      author: 'Hak Ja Han Moon',
+      title: 'Mother of Peace',
+      expected: EDITION_MOP,
+    });
+    expect(rows.length).toBe(633);
 
     const counts = new Map<string, number>();
     for (const r of rows) {
@@ -172,12 +193,20 @@ describe('sourceToEdition', () => {
     expect(counts.get(EDITION_DD_REVELATIONS)).toBe(10);
     expect(counts.get(EDITION_DD_SPECIAL_GRACE)).toBe(1);
     expect(counts.get(EDITION_WOT)).toBe(4);
+    expect(counts.get(EDITION_PLGC)).toBe(1);
+    expect(counts.get(EDITION_MOP)).toBe(1);
   });
 });
 
 describe('BACKFILL_EDITIONS constants', () => {
-  it('declares one Edition per founding + extra Work (11 total, matches BACKFILL_WORKS)', () => {
-    expect(BACKFILL_EDITIONS).toHaveLength(11);
+  it('declares one Edition per founding + extra Work (13 total, matches BACKFILL_WORKS)', () => {
+    expect(BACKFILL_EDITIONS).toHaveLength(13);
+  });
+
+  it('pins the PLGC autobiography (2009, pre-ascension) and MoP memoir (2021, post-2012)', () => {
+    const byId = new Map(BACKFILL_EDITIONS.map((e) => [e.id, e] as const));
+    expect(byId.get(EDITION_PLGC)).toMatchObject({ label: '2009', recension: 'pre-ascension-original' });
+    expect(byId.get(EDITION_MOP)).toMatchObject({ label: '2021 Memoir', recension: 'ffwpu-post-2012' });
   });
 
   it('pins CSG / PHG / CBG / TFG / TM to `ffwpu-post-2012` with the specified labels', () => {

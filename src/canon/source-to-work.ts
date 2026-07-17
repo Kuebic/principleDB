@@ -39,6 +39,8 @@ export const WORK_TM = 'work_tm';
 export const WORK_DD_REVELATIONS = 'work_dd_revelations';
 export const WORK_DD_SPECIAL_GRACE = 'work_dd_special-grace';
 export const WORK_WOT = 'work_wot';
+export const WORK_MOP = 'work_mop';
+export const WORK_PLGC = 'work_plgc';
 
 const FIGURE_SMM = 'fig_sun-myung-moon';
 const FIGURE_SHL = 'fig_sang-hun-lee';
@@ -79,6 +81,13 @@ export const BACKFILL_WORKS: readonly Work[] = [
     tier: 'extra',
   },
   { id: WORK_WOT, title: 'The Way of Tradition', figureId: FIGURE_SMM, tier: 'extra' },
+  {
+    id: WORK_PLGC,
+    title: 'As a Peace-Loving Global Citizen',
+    figureId: FIGURE_SMM,
+    tier: 'extra',
+  },
+  { id: WORK_MOP, title: 'Mother of Peace', figureId: FIGURE_HJH, tier: 'extra' },
 ];
 
 export interface SourceRow {
@@ -93,7 +102,13 @@ const DP_PART_SLUG = /^\d{2}-/;
 export function sourceToWork(row: SourceRow): string {
   if (row.author === 'SunMyungMoon-CSG') return WORK_CSG;
   if (row.author === 'Sang Hun Lee') return WORK_UT;
-  if (row.author === 'Hak Ja Han Moon') return WORK_TM;
+  if (row.author === 'Hak Ja Han Moon') {
+    // Her memoir is a distinct (extra) Work from the teaching anthology; the
+    // four Anthology sources carry the anthology title, so they fall through
+    // to TM.
+    if (row.title.includes('Mother of Peace')) return WORK_MOP;
+    return WORK_TM;
+  }
 
   if (row.author === 'Sun Myung Moon') {
     const t = row.title;
@@ -103,6 +118,8 @@ export function sourceToWork(row: SourceRow): string {
     // `extra` addition — the 4-volume 1980 compilation. Checked before WOGW;
     // the two titles don't overlap, so order is only for readability.
     if (t.includes('Way of Tradition')) return WORK_WOT;
+    // His autobiography (2009) — an extra Work, matched by its distinctive title.
+    if (t.includes('Peace-Loving Global Citizen')) return WORK_PLGC;
     // Case-insensitive: the live titles read "The Way *Of* God's Will".
     if (t.toLowerCase().includes("way of god's will")) return WORK_WOGW;
     throw new UnmappedSourceError(row);

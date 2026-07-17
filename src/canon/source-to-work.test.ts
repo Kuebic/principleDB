@@ -33,6 +33,8 @@ import {
   WORK_UT,
   WORK_WOGW,
   WORK_WOT,
+  WORK_MOP,
+  WORK_PLGC,
   sourceToWork,
 } from './source-to-work';
 
@@ -47,6 +49,32 @@ describe('sourceToWork', () => {
 
   it('maps Hak Ja Han Moon → TM Anthology', () => {
     expect(sourceToWork({ author: 'Hak Ja Han Moon', title: 'TM — 1' })).toBe(WORK_TM);
+  });
+
+  it('splits the Hak Ja Han bucket: "Mother of Peace" memoir → its own extra Work', () => {
+    expect(
+      sourceToWork({ author: 'Hak Ja Han Moon', title: 'Mother of Peace' }),
+    ).toBe(WORK_MOP);
+    expect(
+      sourceToWork({ author: 'Hak Ja Han Moon', title: 'Mother of Peace, the Memoir' }),
+    ).toBe(WORK_MOP);
+    // The teaching anthology still falls through to TM.
+    expect(
+      sourceToWork({ author: 'Hak Ja Han Moon', title: "An Anthology of True Mother's Teachings 1" }),
+    ).toBe(WORK_TM);
+  });
+
+  it('maps the Sun Myung Moon "Peace-Loving Global Citizen" autobiography → its own extra Work', () => {
+    expect(
+      sourceToWork({ author: 'Sun Myung Moon', title: 'As a Peace-Loving Global Citizen' }),
+    ).toBe(WORK_PLGC);
+    // The real PDF title carries a "with photos … October 2009" suffix.
+    expect(
+      sourceToWork({
+        author: 'Sun Myung Moon',
+        title: 'As A Peace-Loving Global Citizen - with photos - Sun Myung Moon - October 2009',
+      }),
+    ).toBe(WORK_PLGC);
   });
 
   it('splits the Sun Myung Moon bucket by title signature (CBG / PHG / WOGW)', () => {
@@ -128,7 +156,7 @@ describe('sourceToWork', () => {
     );
   });
 
-  it('partition is total and disjoint over the live 631 rows (429/59/25/15/13/1/70/4 + 10/1 + 4)', () => {
+  it('partition is total and disjoint over the live 633 rows (429/59/25/15/13/1/70/4 + 10/1 + 4 + 1 PLGC + 1 MoP)', () => {
     // Representative rows drawn from the live partition. Each row must map to
     // exactly one Work; the count per Work must match what the dry-run reports.
     const rows: Array<{ author: string; title: string; expected: string }> = [];
@@ -157,7 +185,10 @@ describe('sourceToWork', () => {
     for (let i = 1; i <= 4; i++) {
       rows.push({ author: 'Sun Myung Moon', title: `The Way of Tradition — WayOfTradition${i}-800000`, expected: WORK_WOT });
     }
-    expect(rows.length).toBe(631);
+    // The two 2026-07 autobiography/memoir additions — one PDF Source each.
+    rows.push({ author: 'Sun Myung Moon', title: 'As a Peace-Loving Global Citizen', expected: WORK_PLGC });
+    rows.push({ author: 'Hak Ja Han Moon', title: 'Mother of Peace', expected: WORK_MOP });
+    expect(rows.length).toBe(633);
 
     const counts = new Map<string, number>();
     for (const r of rows) {
@@ -176,6 +207,8 @@ describe('sourceToWork', () => {
     expect(counts.get(WORK_DD_REVELATIONS)).toBe(10);
     expect(counts.get(WORK_DD_SPECIAL_GRACE)).toBe(1);
     expect(counts.get(WORK_WOT)).toBe(4);
+    expect(counts.get(WORK_PLGC)).toBe(1);
+    expect(counts.get(WORK_MOP)).toBe(1);
   });
 
   it('is deterministic — same input always produces the same Work id', () => {
@@ -190,29 +223,33 @@ describe('BACKFILL_FIGURES / BACKFILL_WORKS constants', () => {
     expect(displayNames).toEqual(['Damien Dunkley', 'Hak Ja Han', 'Sang Hun Lee', 'Sun Myung Moon']);
   });
 
-  it('declares 11 Works, each pointing at a real Figure id; the 8 founding are core, the 2 Dunkley + Way of Tradition are extra', () => {
-    expect(BACKFILL_WORKS).toHaveLength(11);
+  it('declares 13 Works, each pointing at a real Figure id; the 8 founding are core, the 2 Dunkley + Way of Tradition + PLGC + Mother of Peace are extra', () => {
+    expect(BACKFILL_WORKS).toHaveLength(13);
     const figureIds = new Set(BACKFILL_FIGURES.map((f) => f.id));
     for (const w of BACKFILL_WORKS) {
       expect(figureIds.has(w.figureId)).toBe(true);
     }
     expect(BACKFILL_WORKS.filter((w) => w.tier === 'core')).toHaveLength(8);
     const extras = BACKFILL_WORKS.filter((w) => w.tier === 'extra').map((w) => w.id).sort();
-    expect(extras).toEqual([WORK_DD_REVELATIONS, WORK_DD_SPECIAL_GRACE, WORK_WOT].sort());
+    expect(extras).toEqual(
+      [WORK_DD_REVELATIONS, WORK_DD_SPECIAL_GRACE, WORK_WOT, WORK_PLGC, WORK_MOP].sort(),
+    );
   });
 
-  it('attributes Sun Myung Moon to CSG, DP, WOGW, CBG, PHG, TFG + the extra Way of Tradition (7 Works)', () => {
+  it('attributes Sun Myung Moon to CSG, DP, WOGW, CBG, PHG, TFG + the extra Way of Tradition + PLGC (8 Works)', () => {
     const smm = BACKFILL_FIGURES.find((f) => f.displayName === 'Sun Myung Moon')!;
     const smmWorks = BACKFILL_WORKS.filter((w) => w.figureId === smm.id).map((w) => w.id).sort();
-    expect(smmWorks).toEqual([WORK_CBG, WORK_CSG, WORK_DP, WORK_PHG, WORK_TFG, WORK_WOGW, WORK_WOT].sort());
+    expect(smmWorks).toEqual([WORK_CBG, WORK_CSG, WORK_DP, WORK_PHG, WORK_PLGC, WORK_TFG, WORK_WOGW, WORK_WOT].sort());
   });
 
-  it('attributes Sang Hun Lee → UT, Hak Ja Han → TM, Damien Dunkley → both discourses', () => {
+  it('attributes Sang Hun Lee → UT, Hak Ja Han → TM + Mother of Peace, Damien Dunkley → both discourses', () => {
     const shl = BACKFILL_FIGURES.find((f) => f.displayName === 'Sang Hun Lee')!;
     const hjh = BACKFILL_FIGURES.find((f) => f.displayName === 'Hak Ja Han')!;
     const dd = BACKFILL_FIGURES.find((f) => f.displayName === 'Damien Dunkley')!;
     expect(BACKFILL_WORKS.filter((w) => w.figureId === shl.id).map((w) => w.id)).toEqual([WORK_UT]);
-    expect(BACKFILL_WORKS.filter((w) => w.figureId === hjh.id).map((w) => w.id)).toEqual([WORK_TM]);
+    expect(BACKFILL_WORKS.filter((w) => w.figureId === hjh.id).map((w) => w.id).sort()).toEqual(
+      [WORK_TM, WORK_MOP].sort(),
+    );
     expect(BACKFILL_WORKS.filter((w) => w.figureId === dd.id).map((w) => w.id).sort()).toEqual(
       [WORK_DD_REVELATIONS, WORK_DD_SPECIAL_GRACE].sort(),
     );
