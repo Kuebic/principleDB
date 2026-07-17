@@ -110,6 +110,66 @@ describe('createOpenAIEmbedder (unit)', () => {
     ]);
   });
 
+  it('chunks >2048 claims into ordered batches and keeps every vector paired', async () => {
+    // OpenAI 400s on an input array longer than 2048. Feed 2050 claims and
+    // assert two in-cap requests (2048 + 2) with vectors staying aligned across
+    // the batch boundary. Each claim "c<i>" echoes a unit vector encoding its
+    // global index (angle = i) so a desync or dropped batch is detectable.
+    const requestSizes: number[] = [];
+    let emitted = 0; // running global offset across batches
+    const fetchImpl = (async (_url: string, init: RequestInit) => {
+      const input = JSON.parse(init.body as string).input as string[];
+      requestSizes.push(input.length);
+      const base = emitted;
+      emitted += input.length;
+      return {
+        ok: true,
+        status: 200,
+        text: async () => '',
+        // Already-unit vectors (cos,sin) so l2Normalize is a no-op and the
+        // global index survives for an exact ordering assertion.
+        json: async () => ({
+          data: input.map((_claim, index) => {
+            const g = base + index;
+            return { index, embedding: [Math.cos(g), Math.sin(g)] };
+          }),
+        }),
+      };
+    }) as unknown as typeof fetch;
+
+    const embed = createOpenAIEmbedder({ apiKey: 'sk-test', fetchImpl });
+    const claims = Array.from({ length: 2050 }, (_, i) => `c${i}`);
+    const vectors = await embed(claims);
+
+    expect(requestSizes).toEqual([2048, 2]);
+    expect(vectors).toHaveLength(2050);
+    // vectors[j] must still be claim j's vector — check across the 2048 boundary.
+    for (const j of [0, 1, 2047, 2048, 2049]) {
+      expect(vectors[j]![0]).toBeCloseTo(Math.cos(j), 10);
+      expect(vectors[j]![1]).toBeCloseTo(Math.sin(j), 10);
+    }
+  });
+
+  it('never exceeds the 2048 input cap even at exactly 4096 claims', async () => {
+    const requestSizes: number[] = [];
+    const fetchImpl = (async (_url: string, init: RequestInit) => {
+      const input = JSON.parse(init.body as string).input as string[];
+      requestSizes.push(input.length);
+      return {
+        ok: true,
+        status: 200,
+        text: async () => '',
+        json: async () => ({
+          data: input.map((_claim, index) => ({ index, embedding: [1, 0] })),
+        }),
+      };
+    }) as unknown as typeof fetch;
+    const embed = createOpenAIEmbedder({ apiKey: 'sk-test', fetchImpl });
+    const vectors = await embed(Array.from({ length: 4096 }, (_, i) => `c${i}`));
+    expect(requestSizes).toEqual([2048, 2048]);
+    expect(vectors).toHaveLength(4096);
+  });
+
   it('throws with status + body excerpt on non-2xx', async () => {
     const fetchImpl = fakeFetchErr(401, '{"error":{"message":"bad key"}}');
     const embed = createOpenAIEmbedder({ apiKey: 'sk-test', fetchImpl });
