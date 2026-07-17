@@ -41,17 +41,20 @@ export const WORK_DD_SPECIAL_GRACE = 'work_dd_special-grace';
 export const WORK_WOT = 'work_wot';
 export const WORK_MOP = 'work_mop';
 export const WORK_PLGC = 'work_plgc';
+export const WORK_BR = 'work_br';
 
 const FIGURE_SMM = 'fig_sun-myung-moon';
 const FIGURE_SHL = 'fig_sang-hun-lee';
 const FIGURE_HJH = 'fig_hak-ja-han';
 const FIGURE_DD = 'fig_damien-dunkley';
+const FIGURE_TH = 'fig_tyler-hendricks';
 
 export const BACKFILL_FIGURES: readonly Figure[] = [
   { id: FIGURE_SMM, slug: 'sun-myung-moon', displayName: 'Sun Myung Moon' },
   { id: FIGURE_SHL, slug: 'sang-hun-lee', displayName: 'Sang Hun Lee' },
   { id: FIGURE_HJH, slug: 'hak-ja-han', displayName: 'Hak Ja Han' },
   { id: FIGURE_DD, slug: 'damien-dunkley', displayName: 'Damien Dunkley' },
+  { id: FIGURE_TH, slug: 'tyler-hendricks', displayName: 'Tyler Hendricks' },
 ];
 
 export const BACKFILL_WORKS: readonly Work[] = [
@@ -88,6 +91,14 @@ export const BACKFILL_WORKS: readonly Work[] = [
     tier: 'extra',
   },
   { id: WORK_MOP, title: 'Mother of Peace', figureId: FIGURE_HJH, tier: 'extra' },
+  {
+    // Tyler Hendricks (2010) — a church-growth study grounded in DP. External
+    // author, historical/context layer → extra tier.
+    id: WORK_BR,
+    title: "The Believers' Responsibility",
+    figureId: FIGURE_TH,
+    tier: 'extra',
+  },
 ];
 
 export interface SourceRow {
@@ -129,6 +140,13 @@ export function sourceToWork(row: SourceRow): string {
     const t = row.title;
     if (t.includes("Discourse on True Mother's Revelations")) return WORK_DD_REVELATIONS;
     if (t.includes('The Meaning of Special Grace')) return WORK_DD_SPECIAL_GRACE;
+    throw new UnmappedSourceError(row);
+  }
+
+  if (row.author === 'Tyler Hendricks') {
+    // Match on the distinctive phrase so a future second Hendricks work must
+    // declare its own rule rather than silently landing here.
+    if (row.title.includes('Believers') && row.title.includes('Responsibility')) return WORK_BR;
     throw new UnmappedSourceError(row);
   }
 

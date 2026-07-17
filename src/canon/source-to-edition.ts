@@ -38,6 +38,7 @@ import {
   WORK_WOT,
   WORK_MOP,
   WORK_PLGC,
+  WORK_BR,
   sourceToWork,
   type SourceRow,
 } from './source-to-work';
@@ -55,6 +56,7 @@ export const EDITION_DD_SPECIAL_GRACE = 'ed_dd_special-grace';
 export const EDITION_WOT = 'ed_wot';
 export const EDITION_MOP = 'ed_mop';
 export const EDITION_PLGC = 'ed_plgc';
+export const EDITION_BR = 'ed_br';
 
 export const BACKFILL_EDITIONS: readonly Edition[] = [
   {
@@ -192,6 +194,18 @@ export const BACKFILL_EDITIONS: readonly Edition[] = [
     publisher: null,
     notes: null,
   },
+  {
+    id: EDITION_BR,
+    workId: WORK_BR,
+    // Tyler Hendricks, June 2010. External study, not TP's words → same
+    // external-discourse recension as the Dunkley discourses.
+    label: '2010',
+    recension: 'external-discourse',
+    language: 'en',
+    publishedDate: '2010-06-01',
+    publisher: null,
+    notes: null,
+  },
 ];
 
 const WORK_TO_EDITION = new Map<string, string>([
@@ -208,6 +222,7 @@ const WORK_TO_EDITION = new Map<string, string>([
   [WORK_WOT, EDITION_WOT],
   [WORK_PLGC, EDITION_PLGC],
   [WORK_MOP, EDITION_MOP],
+  [WORK_BR, EDITION_BR],
 ]);
 
 export function sourceToEdition(row: SourceRow): string {

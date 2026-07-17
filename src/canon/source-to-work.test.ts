@@ -35,6 +35,7 @@ import {
   WORK_WOT,
   WORK_MOP,
   WORK_PLGC,
+  WORK_BR,
   sourceToWork,
 } from './source-to-work';
 
@@ -129,6 +130,23 @@ describe('sourceToWork', () => {
     ).toBe(WORK_WOT);
   });
 
+  it('maps Tyler Hendricks "Believers\' Responsibility" → its own extra Work', () => {
+    expect(
+      sourceToWork({ author: 'Tyler Hendricks', title: "The Believers' Responsibility" }),
+    ).toBe(WORK_BR);
+    // Real ingest title carries the file-stem suffix — still matches.
+    expect(
+      sourceToWork({
+        author: 'Tyler Hendricks',
+        title: "The Believers' Responsibility — BelieversResponsibility",
+      }),
+    ).toBe(WORK_BR);
+    // A future, undeclared Hendricks work must throw rather than land in BR.
+    expect(() =>
+      sourceToWork({ author: 'Tyler Hendricks', title: 'Some Other Hendricks Talk' }),
+    ).toThrow();
+  });
+
   it('maps the two Damien Dunkley discourses to their extra Works', () => {
     expect(
       sourceToWork({ author: 'Damien Dunkley', title: "Discourse on True Mother's Revelations — Part 01" }),
@@ -156,7 +174,7 @@ describe('sourceToWork', () => {
     );
   });
 
-  it('partition is total and disjoint over the live 633 rows (429/59/25/15/13/1/70/4 + 10/1 + 4 + 1 PLGC + 1 MoP)', () => {
+  it('partition is total and disjoint over the live 634 rows (429/59/25/15/13/1/70/4 + 10/1 + 4 + 1 PLGC + 1 MoP + 1 BR)', () => {
     // Representative rows drawn from the live partition. Each row must map to
     // exactly one Work; the count per Work must match what the dry-run reports.
     const rows: Array<{ author: string; title: string; expected: string }> = [];
@@ -188,7 +206,9 @@ describe('sourceToWork', () => {
     // The two 2026-07 autobiography/memoir additions — one PDF Source each.
     rows.push({ author: 'Sun Myung Moon', title: 'As a Peace-Loving Global Citizen', expected: WORK_PLGC });
     rows.push({ author: 'Hak Ja Han Moon', title: 'Mother of Peace', expected: WORK_MOP });
-    expect(rows.length).toBe(633);
+    // Tyler Hendricks historical/context layer — one PDF Source.
+    rows.push({ author: 'Tyler Hendricks', title: "The Believers' Responsibility", expected: WORK_BR });
+    expect(rows.length).toBe(634);
 
     const counts = new Map<string, number>();
     for (const r of rows) {
@@ -209,6 +229,7 @@ describe('sourceToWork', () => {
     expect(counts.get(WORK_WOT)).toBe(4);
     expect(counts.get(WORK_PLGC)).toBe(1);
     expect(counts.get(WORK_MOP)).toBe(1);
+    expect(counts.get(WORK_BR)).toBe(1);
   });
 
   it('is deterministic — same input always produces the same Work id', () => {
@@ -218,13 +239,19 @@ describe('sourceToWork', () => {
 });
 
 describe('BACKFILL_FIGURES / BACKFILL_WORKS constants', () => {
-  it('declares the 4 Figures: Sun Myung Moon, Sang Hun Lee, Hak Ja Han, Damien Dunkley', () => {
+  it('declares the 5 Figures: Sun Myung Moon, Sang Hun Lee, Hak Ja Han, Damien Dunkley, Tyler Hendricks', () => {
     const displayNames = BACKFILL_FIGURES.map((f) => f.displayName).sort();
-    expect(displayNames).toEqual(['Damien Dunkley', 'Hak Ja Han', 'Sang Hun Lee', 'Sun Myung Moon']);
+    expect(displayNames).toEqual([
+      'Damien Dunkley',
+      'Hak Ja Han',
+      'Sang Hun Lee',
+      'Sun Myung Moon',
+      'Tyler Hendricks',
+    ]);
   });
 
-  it('declares 13 Works, each pointing at a real Figure id; the 8 founding are core, the 2 Dunkley + Way of Tradition + PLGC + Mother of Peace are extra', () => {
-    expect(BACKFILL_WORKS).toHaveLength(13);
+  it('declares 14 Works, each pointing at a real Figure id; the 8 founding are core, the 2 Dunkley + Way of Tradition + PLGC + Mother of Peace + Believers\' Responsibility are extra', () => {
+    expect(BACKFILL_WORKS).toHaveLength(14);
     const figureIds = new Set(BACKFILL_FIGURES.map((f) => f.id));
     for (const w of BACKFILL_WORKS) {
       expect(figureIds.has(w.figureId)).toBe(true);
@@ -232,7 +259,7 @@ describe('BACKFILL_FIGURES / BACKFILL_WORKS constants', () => {
     expect(BACKFILL_WORKS.filter((w) => w.tier === 'core')).toHaveLength(8);
     const extras = BACKFILL_WORKS.filter((w) => w.tier === 'extra').map((w) => w.id).sort();
     expect(extras).toEqual(
-      [WORK_DD_REVELATIONS, WORK_DD_SPECIAL_GRACE, WORK_WOT, WORK_PLGC, WORK_MOP].sort(),
+      [WORK_DD_REVELATIONS, WORK_DD_SPECIAL_GRACE, WORK_WOT, WORK_PLGC, WORK_MOP, WORK_BR].sort(),
     );
   });
 
@@ -242,10 +269,11 @@ describe('BACKFILL_FIGURES / BACKFILL_WORKS constants', () => {
     expect(smmWorks).toEqual([WORK_CBG, WORK_CSG, WORK_DP, WORK_PHG, WORK_PLGC, WORK_TFG, WORK_WOGW, WORK_WOT].sort());
   });
 
-  it('attributes Sang Hun Lee → UT, Hak Ja Han → TM + Mother of Peace, Damien Dunkley → both discourses', () => {
+  it('attributes Sang Hun Lee → UT, Hak Ja Han → TM + Mother of Peace, Damien Dunkley → both discourses, Tyler Hendricks → Believers\' Responsibility', () => {
     const shl = BACKFILL_FIGURES.find((f) => f.displayName === 'Sang Hun Lee')!;
     const hjh = BACKFILL_FIGURES.find((f) => f.displayName === 'Hak Ja Han')!;
     const dd = BACKFILL_FIGURES.find((f) => f.displayName === 'Damien Dunkley')!;
+    const th = BACKFILL_FIGURES.find((f) => f.displayName === 'Tyler Hendricks')!;
     expect(BACKFILL_WORKS.filter((w) => w.figureId === shl.id).map((w) => w.id)).toEqual([WORK_UT]);
     expect(BACKFILL_WORKS.filter((w) => w.figureId === hjh.id).map((w) => w.id).sort()).toEqual(
       [WORK_TM, WORK_MOP].sort(),
@@ -253,5 +281,6 @@ describe('BACKFILL_FIGURES / BACKFILL_WORKS constants', () => {
     expect(BACKFILL_WORKS.filter((w) => w.figureId === dd.id).map((w) => w.id).sort()).toEqual(
       [WORK_DD_REVELATIONS, WORK_DD_SPECIAL_GRACE].sort(),
     );
+    expect(BACKFILL_WORKS.filter((w) => w.figureId === th.id).map((w) => w.id)).toEqual([WORK_BR]);
   });
 });
