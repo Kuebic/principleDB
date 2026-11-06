@@ -1,8 +1,8 @@
 {
-  "name": "principledb-prototype",
+  "name": "principledb",
   "private": true,
   "type": "module",
-  "description": "THROWAWAY core-spine prototype for principleDB (see prototype/). Safe to delete once the question is answered.",
+  "description": "Self-hostable MCP server that turns a body of teaching into atomic principles backed by verbatim, located quotes.",
   "bin": {
     "principledb-mcp": "bin/principledb-mcp.ts"
   },
